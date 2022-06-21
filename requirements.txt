@@ -1,0 +1,7 @@
+accelerate
+einops
+Pillow
+scipy
+torch
+torchvision
+tqdm

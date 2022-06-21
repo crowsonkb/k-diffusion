@@ -1,0 +1,7 @@
+venv*
+__pycache__
+.ipynb_checkpoints
+*.pth
+*.egg-info
+data
+*_demo_*.png
