@@ -30,8 +30,6 @@ def main():
                    help='the checkpoint to resume from')
     p.add_argument('--save-every', type=int, default=10000,
                    help='save every this many steps')
-    p.add_argument('--size', type=int, default=32,
-                   help='the image size')
     p.add_argument('--train-set', type=str, default='data',
                    help='the training set location')
     args = p.parse_args()
@@ -82,7 +80,7 @@ def main():
             tqdm.write('Sampling...')
         filename = f'{args.name}_demo_{step:08}.png'
         n_per_proc = math.ceil(args.n_to_sample / accelerator.num_processes)
-        x = torch.randn([n_per_proc, 3, args.size, args.size], device=device) * sigma_max
+        x = torch.randn([n_per_proc, 1, 28, 28], device=device) * sigma_max
         sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_local_main_process)
         x_0 = accelerator.gather(x_0)[:args.n_to_sample]
