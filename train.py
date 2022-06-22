@@ -3,6 +3,7 @@
 import argparse
 from copy import deepcopy
 import math
+from pathlib import Path
 
 import accelerate
 import torch
@@ -87,6 +88,13 @@ def main():
     train_iter = iter(train_dl)
     accelerator.print('Computing features for reals...')
     reals_features = evaluation.compute_features(accelerator, lambda x: next(train_iter)[0], extractor, args.evaluate_n, args.batch_size)
+    if accelerator.is_main_process:
+        metrics_log_filepath = Path(f'{args.name}_metrics.csv')
+        if metrics_log_filepath.exists():
+            metrics_log_file = open(metrics_log_filepath, 'a')
+        else:
+            metrics_log_file = open(metrics_log_filepath, 'w')
+            print('step', 'fid', 'kid', sep=',', file=metrics_log_file, flush=True)
 
     sigma_min, sigma_max = 1e-2, 80
 
@@ -119,6 +127,8 @@ def main():
         fid = evaluation.fid(fakes_features, reals_features)
         kid = evaluation.kid(fakes_features, reals_features)
         accelerator.print(f'FID: {fid.item():g}, KID: {kid.item():g}')
+        if accelerator.is_main_process:
+            print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
 
     def save():
         accelerator.wait_for_everyone()
