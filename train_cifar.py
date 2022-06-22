@@ -11,7 +11,7 @@ from torch.utils import data
 from torchvision import datasets, transforms, utils as tv_utils
 from tqdm import trange, tqdm
 
-from k_diffusion import layers, models, sampling, utils
+from k_diffusion import evaluation, layers, models, sampling, utils
 
 
 def main():
@@ -20,9 +20,13 @@ def main():
                    help='the batch size')
     p.add_argument('--demo-every', type=int, default=500,
                    help='save a demo grid every this many steps')
-    p.add_argument('--lr', type=float, default=1e-3,
+    p.add_argument('--evaluate-every', type=int, default=10000,
+                   help='save a demo grid every this many steps')
+    p.add_argument('--evaluate-n', type=int, default=2000,
+                   help='the number of samples to draw to evaluate')
+    p.add_argument('--lr', type=float, default=5e-4,
                    help='the learning rate')
-    p.add_argument('--n-to-sample', type=int, default=256,
+    p.add_argument('--n-to-sample', type=int, default=144,
                    help='the number of images to sample for demo grids')
     p.add_argument('--name', type=str, default='cifar',
                    help='the name of the run')
@@ -42,7 +46,7 @@ def main():
     accelerator.print('Parameters:', utils.n_params(inner_model))
 
     opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
-    sched = utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
+    sched = utils.InverseLR(opt, inv_gamma=25000, power=1/2, warmup=0.99)
     ema_sched = utils.EMAWarmup(power=3/4, max_value=0.999)
 
     tf = transforms.Compose([
@@ -71,6 +75,11 @@ def main():
         epoch = 0
         step = 0
 
+    extractor = evaluation.InceptionV3FeatureExtractor().to(device)
+    train_iter = iter(train_dl)
+    accelerator.print('Computing features for reals...')
+    reals_features = evaluation.compute_features(accelerator, lambda x: next(train_iter)[0], extractor, args.evaluate_n, args.batch_size)
+
     sigma_min, sigma_max = 1e-2, 80
 
     @torch.no_grad()
@@ -87,6 +96,21 @@ def main():
         if accelerator.is_main_process:
             grid = tv_utils.make_grid(x_0, nrow=math.ceil(args.n_to_sample**0.5), padding=0)
             utils.to_pil_image(grid).save(filename)
+
+    @torch.no_grad()
+    @utils.eval_mode(model_ema)
+    def evaluate():
+        if accelerator.is_local_main_process:
+            tqdm.write('Evaluating...')
+        sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
+        def sample_fn(n):
+            x = torch.randn([n, 3, 32, 32], device=device) * sigma_max
+            x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=True)
+            return x_0
+        fakes_features = evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
+        fid = evaluation.fid(fakes_features, reals_features)
+        kid = evaluation.kid(fakes_features, reals_features)
+        accelerator.print(f'FID: {fid.item():g}, KID: {kid.item():g}')
 
     def save():
         accelerator.wait_for_everyone()
@@ -123,6 +147,9 @@ def main():
 
             if step % args.demo_every == 0:
                 demo()
+
+            if step > 0 and step % args.evaluate_every == 0:
+                evaluate()
 
             if step > 0 and step % args.save_every == 0:
                 save()
