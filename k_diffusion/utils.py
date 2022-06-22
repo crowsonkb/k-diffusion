@@ -157,7 +157,7 @@ class InverseLR(optim.lr_scheduler._LRScheduler):
         return self._get_closed_form_lr()
 
     def _get_closed_form_lr(self):
-        warmup = 1 - self.warmup ** self.last_epoch
+        warmup = 1 - self.warmup ** (self.last_epoch + 1)
         lr_mult = (1 + self.last_epoch / self.inv_gamma) ** -self.power
         return [warmup * max(self.final_lr, base_lr * lr_mult)
                 for base_lr in self.base_lrs]
