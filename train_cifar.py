@@ -24,7 +24,7 @@ def main():
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-n', type=int, default=2000,
                    help='the number of samples to draw to evaluate')
-    p.add_argument('--lr', type=float, default=5e-4,
+    p.add_argument('--lr', type=float, default=3e-4,
                    help='the learning rate')
     p.add_argument('--n-to-sample', type=int, default=144,
                    help='the number of images to sample for demo grids')
