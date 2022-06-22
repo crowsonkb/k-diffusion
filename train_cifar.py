@@ -43,7 +43,7 @@ def main():
     device = accelerator.device
     print('Using device:', device, flush=True)
 
-    inner_model = models.DenoiserInnerModel(3, 128, [2, 4, 4], [128, 256, 512], [False, True, True])
+    inner_model = models.ImageDenoiserInnerModel(3, 128, [2, 4, 4], [128, 256, 512], [False, True, True])
     accelerator.print('Parameters:', utils.n_params(inner_model))
 
     opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
@@ -76,7 +76,7 @@ def main():
         epoch = 0
         step = 0
 
-    extractor = evaluation.InceptionV3FeatureExtractor().to(device)
+    extractor = evaluation.InceptionV3FeatureExtractor(device=device)
     train_iter = iter(train_dl)
     accelerator.print('Computing features for reals...')
     reals_features = evaluation.compute_features(accelerator, lambda x: next(train_iter)[0], extractor, args.evaluate_n, args.batch_size)

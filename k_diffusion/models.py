@@ -12,14 +12,13 @@ class ResConvBlock(layers.ResidualBlock):
         skip = None if c_in == c_out else nn.Conv2d(c_in, c_out, 1, bias=False)
         super().__init__(
             layers.AdaGN(feats_in, c_in, max(1, c_in // group_size)),
-            nn.ReLU(inplace=True),
+            nn.GELU(),
             nn.Conv2d(c_in, c_mid, 3, padding=1),
             nn.Dropout2d(dropout_rate, inplace=True),
             layers.AdaGN(feats_in, c_mid, max(1, c_mid // group_size)),
-            nn.ReLU(inplace=True),
+            nn.GELU(),
             nn.Conv2d(c_mid, c_out, 3, padding=1),
             nn.Dropout2d(dropout_rate, inplace=True),
-            layers.AdaGN(feats_in, c_out, max(1, c_out // group_size)),
             skip=skip)
 
 
@@ -61,11 +60,11 @@ class MappingNet(nn.Sequential):
         super().__init__(
             layers.FourierFeatures(feats_in, feats_out),
             nn.Linear(feats_out, feats_out),
-            nn.ReLU(inplace=True),
+            nn.GELU(),
         )
 
 
-class DenoiserInnerModel(nn.Module):
+class ImageDenoiserInnerModel(nn.Module):
     def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, dropout_rate=0.):
         super().__init__()
         self.mapping = MappingNet(1, feats_in)

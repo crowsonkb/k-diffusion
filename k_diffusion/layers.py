@@ -81,7 +81,7 @@ class AdaGN(ConditionedModule):
     def forward(self, input, cond):
         weight, bias = self.mapper(cond[self.cond_key]).chunk(2, dim=-1)
         input = F.group_norm(input, self.num_groups, eps=self.eps)
-        return torch.addcmul(bias[..., None, None], input, weight[..., None, None] + 1)
+        return torch.addcmul(utils.append_dims(bias, input.ndim), input, utils.append_dims(weight, input.ndim) + 1)
 
 
 # Attention
@@ -91,7 +91,6 @@ class SelfAttention2d(ConditionedModule):
         super().__init__()
         assert c_in % n_head == 0
         self.norm_in = norm(c_in)
-        self.norm_out = norm(c_in)
         self.n_head = n_head
         self.qkv_proj = nn.Conv2d(c_in, c_in * 3, 1)
         self.out_proj = nn.Conv2d(c_in, c_in, 1)
@@ -105,7 +104,7 @@ class SelfAttention2d(ConditionedModule):
         scale = k.shape[3]**-0.25
         att = ((q * scale) @ (k.transpose(2, 3) * scale)).softmax(3)
         y = (att @ v).transpose(2, 3).contiguous().view([n, c, h, w])
-        return input + self.dropout(self.norm_out(self.out_proj(y), cond))
+        return input + self.dropout(self.out_proj(y))
 
 
 # Downsampling/upsampling
@@ -133,7 +132,7 @@ class Downsample2d(nn.Module):
         kernel_1d = torch.tensor([_kernels[kernel]])
         self.pad = kernel_1d.shape[1] // 2 - 1
         self.register_buffer('kernel', kernel_1d.T @ kernel_1d)
-    
+
     def forward(self, x):
         x = F.pad(x, (self.pad,) * 4, self.pad_mode)
         weight = x.new_zeros([x.shape[1], x.shape[1], self.kernel.shape[0], self.kernel.shape[1]])
@@ -149,7 +148,7 @@ class Upsample2d(nn.Module):
         kernel_1d = torch.tensor([_kernels[kernel]]) * 2
         self.pad = kernel_1d.shape[1] // 2 - 1
         self.register_buffer('kernel', kernel_1d.T @ kernel_1d)
-    
+
     def forward(self, x):
         x = F.pad(x, ((self.pad + 1) // 2,) * 4, self.pad_mode)
         weight = x.new_zeros([x.shape[1], x.shape[1], self.kernel.shape[0], self.kernel.shape[1]])
@@ -187,17 +186,3 @@ class UNet(ConditionedModule):
         for i, (block, skip) in enumerate(zip(self.u_blocks, reversed(skips))):
             input = block(input, cond, skip if i > 0 else None)
         return input
-
-
-# Miscellaneous
-
-class Scale(nn.Module):
-    def __init__(self, scale=1.):
-        super().__init__()
-        self.register_buffer('scale', torch.as_tensor(scale))
-
-    def extra_repr(self):
-        return f'{self.scale.item():g}'
-
-    def forward(self, input):
-        return input * self.scale

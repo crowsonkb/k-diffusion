@@ -49,7 +49,7 @@ def main():
     depths = [2] * (n_layers - 2) + [4, 4]
     channels = [128] * (n_layers - 2) + [256, 512]
     self_attn_depths = [False] * (n_layers - 2) + [True, True]
-    inner_model = models.DenoiserInnerModel(3, 96, depths, channels, self_attn_depths)
+    inner_model = models.ImageDenoiserInnerModel(3, 128, depths, channels, self_attn_depths)
     accelerator.print('Parameters:', utils.n_params(inner_model))
 
     opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
@@ -84,7 +84,7 @@ def main():
         epoch = 0
         step = 0
 
-    extractor = evaluation.InceptionV3FeatureExtractor().to(device)
+    extractor = evaluation.InceptionV3FeatureExtractor(device=device)
     train_iter = iter(train_dl)
     accelerator.print('Computing features for reals...')
     reals_features = evaluation.compute_features(accelerator, lambda x: next(train_iter)[0], extractor, args.evaluate_n, args.batch_size)

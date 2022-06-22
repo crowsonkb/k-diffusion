@@ -38,7 +38,7 @@ def main():
     device = accelerator.device
     print('Using device:', device, flush=True)
 
-    inner_model = models.DenoiserInnerModel(1, 64, [2, 2, 2], [64, 64, 64], [False, True, True])
+    inner_model = models.ImageDenoiserInnerModel(1, 64, [2, 2, 2], [64, 64, 64], [False, True, True])
     accelerator.print('Parameters:', utils.n_params(inner_model))
 
     opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
