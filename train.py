@@ -182,52 +182,55 @@ def main():
         if args.wandb_save_model and use_wandb:
             wandb.save(filename)
 
-    while True:
-        for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
-            opt.zero_grad()
-            reals = batch[0].to(device)
-            noise = torch.randn_like(reals)
-            sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
-            loss = model.loss(reals, noise, sigma).mean()
-            accelerator.backward(loss)
-            if args.gns:
-                sq_norm_small_batch, sq_norm_large_batch = accelerator.gather(gns_stats_hook.get_stats()).mean(0).tolist()
-                gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
-            opt.step()
-            sched.step()
-            ema_decay = ema_sched.get_value()
-            utils.ema_update(model, model_ema, ema_decay)
-            ema_sched.step()
-
-            if accelerator.is_local_main_process:                    
-                if step % 25 == 0:
-                    if args.gns:
-                        tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.get_gns():g}')
-                    else:
-                        tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
-
-            if use_wandb:
-                log_dict = {
-                    'epoch': epoch,
-                    'loss': loss.item(),
-                    'lr': sched.get_last_lr()[0],
-                    'ema_decay': ema_decay,
-                }
+    try:
+        while True:
+            for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
+                opt.zero_grad()
+                reals = batch[0].to(device)
+                noise = torch.randn_like(reals)
+                sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
+                loss = model.loss(reals, noise, sigma).mean()
+                accelerator.backward(loss)
                 if args.gns:
-                    log_dict['gradient_noise_scale'] = gns_stats.get_gns()
-                wandb.log(log_dict, step=step)
+                    sq_norm_small_batch, sq_norm_large_batch = accelerator.gather(gns_stats_hook.get_stats()).mean(0).tolist()
+                    gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
+                opt.step()
+                sched.step()
+                ema_decay = ema_sched.get_value()
+                utils.ema_update(model, model_ema, ema_decay)
+                ema_sched.step()
 
-            if step % args.demo_every == 0:
-                demo()
+                if accelerator.is_local_main_process:
+                    if step % 25 == 0:
+                        if args.gns:
+                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.get_gns():g}')
+                        else:
+                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
 
-            if step > 0 and args.evaluate_every > 0 and step % args.evaluate_every == 0:
-                evaluate()
+                if use_wandb:
+                    log_dict = {
+                        'epoch': epoch,
+                        'loss': loss.item(),
+                        'lr': sched.get_last_lr()[0],
+                        'ema_decay': ema_decay,
+                    }
+                    if args.gns:
+                        log_dict['gradient_noise_scale'] = gns_stats.get_gns()
+                    wandb.log(log_dict, step=step)
 
-            if step > 0 and step % args.save_every == 0:
-                save()
+                if step % args.demo_every == 0:
+                    demo()
 
-            step += 1
-        epoch += 1
+                if step > 0 and args.evaluate_every > 0 and step % args.evaluate_every == 0:
+                    evaluate()
+
+                if step > 0 and step % args.save_every == 0:
+                    save()
+
+                step += 1
+            epoch += 1
+    except KeyboardInterrupt:
+        pass
 
 
 if __name__ == '__main__':
