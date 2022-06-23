@@ -41,6 +41,15 @@ def main():
                    help='the image size')
     p.add_argument('--train-set', type=str, required=True,
                    help='the training set location')
+    p.add_argument('--wandb-entity', type=str,
+                   help='the wandb entity name')
+    p.add_argument('--wandb-group', type=str,
+                   help='the wandb group name')
+    p.add_argument('--wandb-project', type=str,
+                   help='the wandb project name (specify this to enable wandb)')
+    p.add_argument('--wandb-save-model', action='store_true',
+                   help='save model to wandb')
+
     args = p.parse_args()
 
     accelerator = accelerate.Accelerator()
@@ -53,6 +62,14 @@ def main():
     self_attn_depths = [False] * (n_layers - 2) + [True, True]
     inner_model = models.ImageDenoiserInnerModel(3, 128, depths, channels, self_attn_depths)
     accelerator.print('Parameters:', utils.n_params(inner_model))
+
+    # If logging to wandb, initialize the run
+    use_wandb = accelerator.is_main_process and args.wandb_project
+    if use_wandb:
+        import wandb
+        config = vars(args)
+        config['params'] = utils.n_params(inner_model)
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=config, save_code=True)
 
     opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
     sched = utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
@@ -69,6 +86,8 @@ def main():
                                num_workers=16, persistent_workers=True)
 
     inner_model, opt, train_dl = accelerator.prepare(inner_model, opt, train_dl)
+    if use_wandb:
+        wandb.watch(inner_model)
     if args.gns:
         gns_stats_hook = gns.DDPGradientStatsHook(inner_model)
         gns_stats = gns.GradientNoiseScale()
@@ -120,8 +139,10 @@ def main():
         x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_local_main_process)
         x_0 = accelerator.gather(x_0)[:args.n_to_sample]
         if accelerator.is_main_process:
-            grid = tv_utils.make_grid(x_0, nrow=math.ceil(args.n_to_sample**0.5), padding=0)
+            grid = tv_utils.make_grid(x_0, nrow=math.ceil(args.n_to_sample ** 0.5), padding=0)
             utils.to_pil_image(grid).save(filename)
+            if use_wandb:
+                wandb.log({'demo_grid': wandb.Image(filename)}, step=step)
 
     @torch.no_grad()
     @utils.eval_mode(model_ema)
@@ -139,6 +160,8 @@ def main():
         accelerator.print(f'FID: {fid.item():g}, KID: {kid.item():g}')
         if accelerator.is_main_process:
             print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
+        if use_wandb:
+            wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
     def save():
         accelerator.wait_for_everyone()
@@ -156,6 +179,8 @@ def main():
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
         }
         accelerator.save(obj, filename)
+        if args.wandb_save_model and use_wandb:
+            wandb.save(filename)
 
     while True:
         for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
@@ -170,15 +195,27 @@ def main():
                 gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
             opt.step()
             sched.step()
-            utils.ema_update(model, model_ema, ema_sched.get_value())
+            ema_decay = ema_sched.get_value()
+            utils.ema_update(model, model_ema, ema_decay)
             ema_sched.step()
 
-            if accelerator.is_local_main_process:
+            if accelerator.is_local_main_process:                    
                 if step % 25 == 0:
                     if args.gns:
-                        tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.gradient_noise_scale:g}')
+                        tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.get_gns():g}')
                     else:
                         tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
+
+            if use_wandb:
+                log_dict = {
+                    'epoch': epoch,
+                    'loss': loss.item(),
+                    'lr': sched.get_last_lr()[0],
+                    'ema_decay': ema_decay,
+                }
+                if args.gns:
+                    log_dict['gradient_noise_scale'] = gns_stats.get_gns()
+                wandb.log(log_dict, step=step)
 
             if step % args.demo_every == 0:
                 demo()
