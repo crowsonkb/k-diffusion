@@ -27,7 +27,7 @@ def main():
                    help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only)')
-    p.add_argument('--lr', type=float, default=3e-4,
+    p.add_argument('--lr', type=float, default=1e-4,
                    help='the learning rate')
     p.add_argument('--n-to-sample', type=int, default=64,
                    help='the number of images to sample for demo grids')
@@ -73,7 +73,7 @@ def main():
 
     opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
     sched = utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
-    ema_sched = utils.EMAWarmup(power=3/4, max_value=0.999)
+    ema_sched = utils.EMAWarmup(power=2/3, max_value=0.9999)
 
     tf = transforms.Compose([
         transforms.Resize(args.size, interpolation=transforms.InterpolationMode.LANCZOS),
