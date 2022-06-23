@@ -12,7 +12,7 @@ from torch.utils import data
 from torchvision import datasets, transforms, utils as tv_utils
 from tqdm import trange, tqdm
 
-from k_diffusion import evaluation, layers, models, sampling, utils
+from k_diffusion import evaluation, gns, layers, models, sampling, utils
 
 
 def main():
@@ -25,6 +25,8 @@ def main():
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-n', type=int, default=2000,
                    help='the number of samples to draw to evaluate')
+    p.add_argument('--gns', action='store_true',
+                   help='measure the gradient noise scale (DDP only)')
     p.add_argument('--lr', type=float, default=3e-4,
                    help='the learning rate')
     p.add_argument('--n-to-sample', type=int, default=64,
@@ -67,6 +69,11 @@ def main():
                                num_workers=16, persistent_workers=True)
 
     inner_model, opt, train_dl = accelerator.prepare(inner_model, opt, train_dl)
+    if args.gns:
+        gns_stats_hook = gns.DDPGradientStatsHook(inner_model)
+        gns_stats = gns.GradientNoiseScale()
+    else:
+        gns_stats = None
     model = layers.Denoiser(inner_model, sigma_data=0.5)
     model_ema = deepcopy(model)
 
@@ -79,6 +86,8 @@ def main():
         ema_sched.load_state_dict(ckpt['ema_sched'])
         epoch = ckpt['epoch'] + 1
         step = ckpt['step'] + 1
+        if args.gns and 'gns_stats' in ckpt and ckpt['gns_stats'] is not None:
+            gns_stats.load_state_dict(ckpt['gns_stats'])
         del ckpt
     else:
         epoch = 0
@@ -144,6 +153,7 @@ def main():
             'ema_sched': ema_sched.state_dict(),
             'epoch': epoch,
             'step': step,
+            'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
         }
         accelerator.save(obj, filename)
 
@@ -155,6 +165,9 @@ def main():
             sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
             loss = model.loss(reals, noise, sigma).mean()
             accelerator.backward(loss)
+            if args.gns:
+                sq_norm_small_batch, sq_norm_large_batch = accelerator.gather(gns_stats_hook.get_stats()).mean(0).tolist()
+                gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
             opt.step()
             sched.step()
             utils.ema_update(model, model_ema, ema_sched.get_value())
@@ -162,7 +175,10 @@ def main():
 
             if accelerator.is_local_main_process:
                 if step % 25 == 0:
-                    tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
+                    if args.gns:
+                        tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.gradient_noise_scale:g}')
+                    else:
+                        tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
 
             if step % args.demo_every == 0:
                 demo()
