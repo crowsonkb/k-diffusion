@@ -7,7 +7,7 @@ from torch.nn import functional as F
 from . import layers, utils
 
 
-class ResConvBlock(layers.ResidualBlock):
+class ResConvBlock(layers.ConditionedResidualBlock):
     def __init__(self, feats_in, c_in, c_mid, c_out, group_size=32, dropout_rate=0.):
         skip = None if c_in == c_out else nn.Conv2d(c_in, c_out, 1, bias=False)
         super().__init__(
@@ -56,18 +56,22 @@ class UBlock(layers.ConditionedSequential):
 
 
 class MappingNet(nn.Sequential):
-    def __init__(self, feats_in, feats_out):
-        super().__init__(
-            layers.FourierFeatures(feats_in, feats_out),
-            nn.Linear(feats_out, feats_out),
-            nn.GELU(),
-        )
+    def __init__(self, feats_in, feats_out, n_layers=2):
+        layers = []
+        for i in range(n_layers):
+            layers.append(nn.Linear(feats_in if i == 0 else feats_out, feats_out))
+            layers.append(nn.GELU())
+        super().__init__(*layers)
+        for layer in self:
+            if isinstance(layer, nn.Linear):
+                nn.init.orthogonal_(layer.weight)
 
 
 class ImageDenoiserInnerModel(nn.Module):
     def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, dropout_rate=0.):
         super().__init__()
-        self.mapping = MappingNet(1, feats_in)
+        self.timestep_embed = layers.FourierFeatures(1, 256)
+        self.mapping = MappingNet(256, feats_in)
         self.proj_in = nn.Conv2d(c_in, channels[0], 1)
         self.proj_out = nn.Conv2d(channels[0], c_in, 1)
         nn.init.zeros_(self.proj_out.weight)
@@ -83,7 +87,10 @@ class ImageDenoiserInnerModel(nn.Module):
         self.u_net = layers.UNet(d_blocks, reversed(u_blocks))
 
     def forward(self, input, sigma):
-        cond = {'cond': self.mapping(utils.append_dims(sigma.log() / 4, 2))}
+        c_noise = sigma.log() / 4
+        timestep_embed = self.timestep_embed(utils.append_dims(c_noise, 2))
+        mapping_out = self.mapping(timestep_embed)
+        cond = {'cond': mapping_out}
         input = self.proj_in(input)
         input = self.u_net(input, cond)
         input = self.proj_out(input)

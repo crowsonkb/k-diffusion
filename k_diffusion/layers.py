@@ -35,6 +35,18 @@ class Denoiser(nn.Module):
         return self.inner_model(input * c_in, sigma, **kwargs) * c_out + input * c_skip
 
 
+# Residual blocks
+
+class ResidualBlock(nn.Module):
+    def __init__(self, *main, skip=None):
+        super().__init__()
+        self.main = nn.Sequential(*main)
+        self.skip = skip if skip else nn.Identity()
+
+    def forward(self, input):
+        return self.main(input) + self.skip(input)
+
+
 # Noise level (and other) conditioning
 
 class ConditionedModule(nn.Module):
@@ -59,7 +71,7 @@ class ConditionedSequential(nn.Sequential, ConditionedModule):
         return input
 
 
-class ResidualBlock(ConditionedModule):
+class ConditionedResidualBlock(ConditionedModule):
     def __init__(self, *main, skip=None):
         super().__init__()
         self.main = ConditionedSequential(*main)
