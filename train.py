@@ -97,6 +97,7 @@ def main():
             print('step', 'fid', 'kid', sep=',', file=metrics_log_file, flush=True)
 
     sigma_min, sigma_max = 1e-2, 80
+    sigma_mean, sigma_std = -1.2, 1.2
 
     @torch.no_grad()
     @utils.eval_mode(model_ema)
@@ -151,7 +152,7 @@ def main():
             opt.zero_grad()
             reals = batch[0].to(device)
             noise = torch.randn_like(reals)
-            sigma = torch.distributions.LogNormal(-1.2, 1.2).sample([reals.shape[0]]).to(device)
+            sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
             loss = model.loss(reals, noise, sigma).mean()
             accelerator.backward(loss)
             opt.step()
