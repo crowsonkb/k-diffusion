@@ -1,3 +1,5 @@
+import math
+
 from scipy import integrate
 import torch
 from tqdm import trange, tqdm
@@ -13,6 +15,12 @@ def get_sigmas_karras(n, sigma_min, sigma_max, rho=7., device='cpu'):
     sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** rho
     sigmas = torch.cat([sigmas, sigmas.new_zeros([1])])
     return sigmas.to(device)
+
+
+def get_sigmas_exponential(n, sigma_min, sigma_max, device='cpu'):
+    """Constructs an exponential noise schedule."""
+    sigmas = torch.linspace(math.log(sigma_max), math.log(sigma_min), n, device=device).exp()
+    return torch.cat([sigmas, sigmas.new_zeros([1])])
 
 
 def to_d(x, sigma, denoised):
