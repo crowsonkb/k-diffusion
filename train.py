@@ -128,7 +128,7 @@ def main():
             utils.to_pil_image(grid).save(filename)
             
             if args.wandb_project:
-                wandb.log({'Demo Images':wandb.Image(filename), 'step':step})
+                wandb.log({'Demo Images':wandb.Image(filename)}, step=step)
 
     @torch.no_grad()
     @utils.eval_mode(model_ema)
@@ -151,8 +151,7 @@ def main():
                 wandb.log({
                     'FID':fid.item(),
                     'KID':kid.item(),
-                    'step':step
-                })
+                }, step=step)
 
     def save():
         accelerator.wait_for_everyone()
@@ -192,7 +191,7 @@ def main():
             if accelerator.is_local_main_process:
                 
                 if args.wandb_project:
-                    wandb.log({'epoch' : epoch, 'step': step, 'loss': loss.item()})
+                    wandb.log({'epoch' : epoch, 'loss': loss.item()}, step=step)
                     
                 if step % 25 == 0:
                     tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
