@@ -158,7 +158,7 @@ def main():
             if step % args.demo_every == 0:
                 demo()
 
-            if step > 0 and step % args.evaluate_every == 0:
+            if step > 0 and args.evaluate_every > 0 and step % args.evaluate_every == 0:
                 evaluate()
 
             if step > 0 and step % args.save_every == 0:
