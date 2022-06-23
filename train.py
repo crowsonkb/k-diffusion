@@ -14,6 +14,8 @@ from tqdm import trange, tqdm
 
 from k_diffusion import evaluation, layers, models, sampling, utils
 
+import wandb
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -39,6 +41,11 @@ def main():
                    help='the image size')
     p.add_argument('--train-set', type=str, required=True,
                    help='the training set location')
+    p.add_argument('--wandb-project', type=str, required=False, default=None,
+                   help='Specify a wandb project name to log metrics')
+    p.add_argument('--wandb-save-model', type=bool, required=False, default=False,
+                   help='Save model to wandb (default is False)')
+    
     args = p.parse_args()
 
     accelerator = accelerate.Accelerator()
@@ -51,6 +58,12 @@ def main():
     self_attn_depths = [False] * (n_layers - 2) + [True, True]
     inner_model = models.ImageDenoiserInnerModel(3, 128, depths, channels, self_attn_depths)
     accelerator.print('Parameters:', utils.n_params(inner_model))
+    
+    # If logging to wandb, initialize the run
+    if args.wandb_project:
+        config = vars(args) # Can add extras as well
+        config['Paramters'] = 'Parameters:', utils.n_params(inner_model)
+        wandb.init(project=args.wandb_project, config=config)
 
     opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
     sched = utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
@@ -113,6 +126,9 @@ def main():
         if accelerator.is_main_process:
             grid = tv_utils.make_grid(x_0, nrow=math.ceil(args.n_to_sample**0.5), padding=0)
             utils.to_pil_image(grid).save(filename)
+            
+            if args.wandb_project:
+                wandb.log({'Demo Images':wandb.Image(filename), 'step':step})
 
     @torch.no_grad()
     @utils.eval_mode(model_ema)
@@ -130,6 +146,13 @@ def main():
         accelerator.print(f'FID: {fid.item():g}, KID: {kid.item():g}')
         if accelerator.is_main_process:
             print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
+            
+            if args.wandb_project:
+                wandb.log({
+                    'FID':fid.item(),
+                    'KID':kid.item(),
+                    'step':step
+                })
 
     def save():
         accelerator.wait_for_everyone()
@@ -146,6 +169,12 @@ def main():
             'step': step,
         }
         accelerator.save(obj, filename)
+        
+        if args.wandb_save_model:
+            if args.wandb_project:
+                wandb.save(filename)
+            else:
+                print('Not saving to W&B - no project specified.')
 
     while True:
         for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
@@ -161,6 +190,10 @@ def main():
             ema_sched.step()
 
             if accelerator.is_local_main_process:
+                
+                if args.wandb_project:
+                    wandb.log({'epoch' : epoch, 'step': step, 'loss': loss.item()})
+                    
                 if step % 25 == 0:
                     tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
 

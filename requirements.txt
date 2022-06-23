@@ -7,3 +7,4 @@ torch
 torchvision
 tqdm
 git+https://github.com/openai/CLIP
+wandb
