@@ -81,7 +81,7 @@ def main():
         config['params'] = utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=config, save_code=True)
 
-    opt = optim.Adam(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999))
+    opt = optim.AdamW(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999), eps=1e-6, weight_decay=1e-3)
     sched = utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
     ema_sched = utils.EMAWarmup(power=2/3, max_value=0.9999)
 
