@@ -68,11 +68,13 @@ class MappingNet(nn.Sequential):
 
 
 class ImageDenoiserModel(nn.Module):
-    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, dropout_rate=0.):
+    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, mapping_cond_dim=0, unet_cond_dim=0, dropout_rate=0.):
         super().__init__()
-        self.timestep_embed = layers.FourierFeatures(1, 256)
-        self.mapping = MappingNet(256, feats_in)
-        self.proj_in = nn.Conv2d(c_in, channels[0], 1)
+        self.timestep_embed = layers.FourierFeatures(1, feats_in)
+        if mapping_cond_dim > 0:
+            self.mapping_cond = nn.Linear(mapping_cond_dim, feats_in, bias=False)
+        self.mapping = MappingNet(feats_in, feats_in)
+        self.proj_in = nn.Conv2d(c_in + unet_cond_dim, channels[0], 1)
         self.proj_out = nn.Conv2d(channels[0], c_in, 1)
         nn.init.zeros_(self.proj_out.weight)
         nn.init.zeros_(self.proj_out.bias)
@@ -86,11 +88,14 @@ class ImageDenoiserModel(nn.Module):
             u_blocks.append(UBlock(depths[i], feats_in, my_c_in, channels[i], my_c_out, upsample=i > 0, self_attn=self_attn_depths[i], dropout_rate=dropout_rate))
         self.u_net = layers.UNet(d_blocks, reversed(u_blocks))
 
-    def forward(self, input, sigma):
+    def forward(self, input, sigma, mapping_cond=None, unet_cond=None):
         c_noise = sigma.log() / 4
         timestep_embed = self.timestep_embed(utils.append_dims(c_noise, 2))
-        mapping_out = self.mapping(timestep_embed)
+        mapping_cond_embed = torch.zeros_like(timestep_embed) if mapping_cond is None else self.mapping_cond(mapping_cond)
+        mapping_out = self.mapping(timestep_embed + mapping_cond_embed)
         cond = {'cond': mapping_out}
+        if unet_cond is not None:
+            input = torch.cat([input, unet_cond], dim=1)
         input = self.proj_in(input)
         input = self.u_net(input, cond)
         input = self.proj_out(input)

@@ -2,6 +2,7 @@ accelerate
 einops
 Pillow
 resize-right
+scikit-image
 scipy
 torch
 torchvision

@@ -43,6 +43,9 @@ def main():
                    help='the checkpoint to resume from')
     p.add_argument('--save-every', type=int, default=10000,
                    help='save every this many steps')
+    p.add_argument('--start-method', type=str, default='spawn',
+                   choices=['fork', 'forkserver', 'spawn'],
+                   help='the multiprocessing start method')
     p.add_argument('--train-set', type=str, required=True,
                    help='the training set location')
     p.add_argument('--wandb-entity', type=str,
@@ -53,8 +56,9 @@ def main():
                    help='the wandb project name (specify this to enable wandb)')
     p.add_argument('--wandb-save-model', action='store_true',
                    help='save model to wandb')
-
     args = p.parse_args()
+
+    mp.set_start_method(args.start_method)
 
     model_config = json.load(open(args.model_config))
     # TODO: allow non-square input sizes
@@ -71,8 +75,11 @@ def main():
         model_config['mapping_out'],
         model_config['depths'],
         model_config['channels'],
-        model_config['self_attn_depths']
+        model_config['self_attn_depths'],
+        dropout_rate=model_config['dropout_rate'],
+        mapping_cond_dim=9,
     )
+    inner_model = K.augmentation.KarrasAugmentWrapper(inner_model)
     accelerator.print('Parameters:', K.utils.n_params(inner_model))
 
     # If logging to wandb, initialize the run
@@ -88,17 +95,26 @@ def main():
     sched = K.utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
     ema_sched = K.utils.EMAWarmup(power=2/3, max_value=0.9999)
 
-    tf = transforms.Compose([
+    tf_no_aug = transforms.Compose([
         transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
         transforms.CenterCrop(size[0]),
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5])
     ])
+    train_set_no_aug = datasets.ImageFolder(args.train_set, transform=tf_no_aug)
+    train_dl_no_aug = data.DataLoader(train_set_no_aug, args.batch_size, shuffle=True,
+                                      num_workers=args.num_workers)
+
+    tf = transforms.Compose([
+        transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
+        transforms.CenterCrop(size[0]),
+        K.augmentation.KarrasAugmentationPipeline(model_config['augment_prob']),
+    ])
     train_set = datasets.ImageFolder(args.train_set, transform=tf)
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
-    inner_model, opt, train_dl = accelerator.prepare(inner_model, opt, train_dl)
+    inner_model, opt, train_dl, train_dl_no_aug = accelerator.prepare(inner_model, opt, train_dl, train_dl_no_aug)
     if use_wandb:
         wandb.watch(inner_model)
     if args.gns:
@@ -126,9 +142,9 @@ def main():
         step = 0
 
     extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
-    train_iter = iter(train_dl)
+    train_iter_no_aug = iter(train_dl_no_aug)
     accelerator.print('Computing features for reals...')
-    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[0], extractor, args.evaluate_n, args.batch_size)
+    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter_no_aug)[0], extractor, args.evaluate_n, args.batch_size)
     if accelerator.is_main_process:
         metrics_log_filepath = Path(f'{args.name}_metrics.csv')
         if metrics_log_filepath.exists():
@@ -202,10 +218,10 @@ def main():
         while True:
             for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
                 opt.zero_grad()
-                reals = batch[0].to(device)
+                reals, aug_cond = batch[0]
                 noise = torch.randn_like(reals)
                 sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
-                loss = model.loss(reals, noise, sigma).mean()
+                loss = model.loss(reals, noise, sigma, aug_cond=aug_cond).mean()
                 accelerator.backward(loss)
                 if args.gns:
                     sq_norm_small_batch, sq_norm_large_batch = accelerator.reduce(gns_stats_hook.get_stats(), 'mean').tolist()
@@ -250,5 +266,4 @@ def main():
 
 
 if __name__ == '__main__':
-    mp.set_start_method('spawn')
     main()

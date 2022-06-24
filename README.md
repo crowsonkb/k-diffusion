@@ -2,7 +2,7 @@
 
 An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch.
 
-**This repo is a work in progress** (models may break on later versions, script options may change). Also Config F is not currently implemented, this repo currently implements Config E.
+**This repo is a work in progress** (models may break on later versions, script options may change).
 
 Multi-GPU and multi-node training is supported with [Hugging Face Accelerate](https://huggingface.co/docs/accelerate/index). You can configure Accelerate by running:
 
