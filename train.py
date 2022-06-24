@@ -11,10 +11,11 @@ import torch
 from torch import optim
 from torch import multiprocessing as mp
 from torch.utils import data
-from torchvision import datasets, transforms, utils as tv_utils
+from torchvision import datasets, transforms, utils
 from tqdm import trange, tqdm
 
-from k_diffusion import evaluation, gns, layers, models, sampling, utils
+import k_diffusion as K
+
 
 def main():
     p = argparse.ArgumentParser()
@@ -65,14 +66,14 @@ def main():
     print('Using device:', device, flush=True)
 
     assert model_config['type'] == 'image_v1'
-    inner_model = models.ImageDenoiserModel(
+    inner_model = K.models.ImageDenoiserModel(
         model_config['input_channels'],
         model_config['mapping_out'],
         model_config['depths'],
         model_config['channels'],
         model_config['self_attn_depths']
     )
-    accelerator.print('Parameters:', utils.n_params(inner_model))
+    accelerator.print('Parameters:', K.utils.n_params(inner_model))
 
     # If logging to wandb, initialize the run
     use_wandb = accelerator.is_main_process and args.wandb_project
@@ -80,12 +81,12 @@ def main():
         import wandb
         config = vars(args)
         config['model_config'] = model_config
-        config['params'] = utils.n_params(inner_model)
+        config['params'] = K.utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=config, save_code=True)
 
     opt = optim.AdamW(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999), eps=1e-6, weight_decay=1e-3)
-    sched = utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
-    ema_sched = utils.EMAWarmup(power=2/3, max_value=0.9999)
+    sched = K.utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
+    ema_sched = K.utils.EMAWarmup(power=2/3, max_value=0.9999)
 
     tf = transforms.Compose([
         transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
@@ -101,11 +102,11 @@ def main():
     if use_wandb:
         wandb.watch(inner_model)
     if args.gns:
-        gns_stats_hook = gns.DDPGradientStatsHook(inner_model)
-        gns_stats = gns.GradientNoiseScale()
+        gns_stats_hook = K.gns.DDPGradientStatsHook(inner_model)
+        gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
-    model = layers.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
+    model = K.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
     model_ema = deepcopy(model)
 
     if args.resume:
@@ -124,10 +125,10 @@ def main():
         epoch = 0
         step = 0
 
-    extractor = evaluation.InceptionV3FeatureExtractor(device=device)
+    extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
     train_iter = iter(train_dl)
     accelerator.print('Computing features for reals...')
-    reals_features = evaluation.compute_features(accelerator, lambda x: next(train_iter)[0], extractor, args.evaluate_n, args.batch_size)
+    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[0], extractor, args.evaluate_n, args.batch_size)
     if accelerator.is_main_process:
         metrics_log_filepath = Path(f'{args.name}_metrics.csv')
         if metrics_log_filepath.exists():
@@ -143,35 +144,35 @@ def main():
     sigma_std = model_config['sigma_sample_density']['std']
 
     @torch.no_grad()
-    @utils.eval_mode(model_ema)
+    @K.utils.eval_mode(model_ema)
     def demo():
         if accelerator.is_local_main_process:
             tqdm.write('Sampling...')
         filename = f'{args.name}_demo_{step:08}.png'
         n_per_proc = math.ceil(args.n_to_sample / accelerator.num_processes)
         x = torch.randn([n_per_proc, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
-        sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
-        x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_local_main_process)
+        sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
+        x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_local_main_process)
         x_0 = accelerator.gather(x_0)[:args.n_to_sample]
         if accelerator.is_main_process:
-            grid = tv_utils.make_grid(x_0, nrow=math.ceil(args.n_to_sample ** 0.5), padding=0)
-            utils.to_pil_image(grid).save(filename)
+            grid = utils.make_grid(x_0, nrow=math.ceil(args.n_to_sample ** 0.5), padding=0)
+            K.utils.to_pil_image(grid).save(filename)
             if use_wandb:
                 wandb.log({'demo_grid': wandb.Image(filename)}, step=step)
 
     @torch.no_grad()
-    @utils.eval_mode(model_ema)
+    @K.utils.eval_mode(model_ema)
     def evaluate():
         if accelerator.is_local_main_process:
             tqdm.write('Evaluating...')
-        sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
+        sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
             x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
-            x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=True)
+            x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=True)
             return x_0
-        fakes_features = evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
-        fid = evaluation.fid(fakes_features, reals_features)
-        kid = evaluation.kid(fakes_features, reals_features)
+        fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
+        fid = K.evaluation.fid(fakes_features, reals_features)
+        kid = K.evaluation.kid(fakes_features, reals_features)
         accelerator.print(f'FID: {fid.item():g}, KID: {kid.item():g}')
         if accelerator.is_main_process:
             print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
@@ -212,7 +213,7 @@ def main():
                 opt.step()
                 sched.step()
                 ema_decay = ema_sched.get_value()
-                utils.ema_update(model, model_ema, ema_decay)
+                K.utils.ema_update(model, model_ema, ema_decay)
                 ema_sched.step()
 
                 if accelerator.is_local_main_process:
