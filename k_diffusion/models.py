@@ -67,7 +67,7 @@ class MappingNet(nn.Sequential):
                 nn.init.orthogonal_(layer.weight)
 
 
-class ImageDenoiserInnerModel(nn.Module):
+class ImageDenoiserModel(nn.Module):
     def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, dropout_rate=0.):
         super().__init__()
         self.timestep_embed = layers.FourierFeatures(1, 256)

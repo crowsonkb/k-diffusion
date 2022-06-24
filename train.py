@@ -2,6 +2,7 @@
 
 import argparse
 from copy import deepcopy
+import json
 import math
 from pathlib import Path
 
@@ -29,6 +30,8 @@ def main():
                    help='measure the gradient noise scale (DDP only)')
     p.add_argument('--lr', type=float, default=1e-4,
                    help='the learning rate')
+    p.add_argument('--model-config', type=str, required=True,
+                   help='the model config')
     p.add_argument('--n-to-sample', type=int, default=64,
                    help='the number of images to sample for demo grids')
     p.add_argument('--name', type=str, default='model',
@@ -37,8 +40,6 @@ def main():
                    help='the checkpoint to resume from')
     p.add_argument('--save-every', type=int, default=10000,
                    help='save every this many steps')
-    p.add_argument('--size', type=int, default=32,
-                   help='the image size')
     p.add_argument('--train-set', type=str, required=True,
                    help='the training set location')
     p.add_argument('--wandb-entity', type=str,
@@ -52,15 +53,23 @@ def main():
 
     args = p.parse_args()
 
+    model_config = json.load(open(args.model_config))
+    # TODO: allow non-square input sizes
+    assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
+    size = model_config['input_size']
+
     accelerator = accelerate.Accelerator()
     device = accelerator.device
     print('Using device:', device, flush=True)
 
-    n_layers = math.ceil(math.log2(args.size)) - 2
-    depths = [2] * (n_layers - 2) + [4, 4]
-    channels = [128] * (n_layers - 2) + [256, 512]
-    self_attn_depths = [False] * (n_layers - 2) + [True, True]
-    inner_model = models.ImageDenoiserInnerModel(3, 128, depths, channels, self_attn_depths)
+    assert model_config['type'] == 'image_v1'
+    inner_model = models.ImageDenoiserModel(
+        model_config['input_channels'],
+        model_config['mapping_out'],
+        model_config['depths'],
+        model_config['channels'],
+        model_config['self_attn_depths']
+    )
     accelerator.print('Parameters:', utils.n_params(inner_model))
 
     # If logging to wandb, initialize the run
@@ -68,6 +77,7 @@ def main():
     if use_wandb:
         import wandb
         config = vars(args)
+        config['model_config'] = model_config
         config['params'] = utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=config, save_code=True)
 
@@ -76,8 +86,8 @@ def main():
     ema_sched = utils.EMAWarmup(power=2/3, max_value=0.9999)
 
     tf = transforms.Compose([
-        transforms.Resize(args.size, interpolation=transforms.InterpolationMode.LANCZOS),
-        transforms.CenterCrop(args.size),
+        transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
+        transforms.CenterCrop(size[0]),
         transforms.ToTensor(),
         transforms.Normalize([0.5], [0.5])
     ])
@@ -124,8 +134,11 @@ def main():
             metrics_log_file = open(metrics_log_filepath, 'w')
             print('step', 'fid', 'kid', sep=',', file=metrics_log_file, flush=True)
 
-    sigma_min, sigma_max = 1e-2, 80
-    sigma_mean, sigma_std = -1.2, 1.2
+    sigma_min = model_config['sigma_min']
+    sigma_max = model_config['sigma_max']
+    assert model_config['sigma_sample_density']['type'] == 'lognormal'
+    sigma_mean = model_config['sigma_sample_density']['mean']
+    sigma_std = model_config['sigma_sample_density']['std']
 
     @torch.no_grad()
     @utils.eval_mode(model_ema)
@@ -134,7 +147,7 @@ def main():
             tqdm.write('Sampling...')
         filename = f'{args.name}_demo_{step:08}.png'
         n_per_proc = math.ceil(args.n_to_sample / accelerator.num_processes)
-        x = torch.randn([n_per_proc, 3, args.size, args.size], device=device) * sigma_max
+        x = torch.randn([n_per_proc, 3, size[0], size[1]], device=device) * sigma_max
         sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_local_main_process)
         x_0 = accelerator.gather(x_0)[:args.n_to_sample]
@@ -151,7 +164,7 @@ def main():
             tqdm.write('Evaluating...')
         sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
-            x = torch.randn([n, 3, args.size, args.size], device=device) * sigma_max
+            x = torch.randn([n, 3, size[0], size[1]], device=device) * sigma_max
             x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=True)
             return x_0
         fakes_features = evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
