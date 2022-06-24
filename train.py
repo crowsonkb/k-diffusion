@@ -192,7 +192,7 @@ def main():
                 loss = model.loss(reals, noise, sigma).mean()
                 accelerator.backward(loss)
                 if args.gns:
-                    sq_norm_small_batch, sq_norm_large_batch = accelerator.gather(gns_stats_hook.get_stats()).mean(0).tolist()
+                    sq_norm_small_batch, sq_norm_large_batch = accelerator.reduce(gns_stats_hook.get_stats(), 'mean').tolist()
                     gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
                 opt.step()
                 sched.step()

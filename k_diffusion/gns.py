@@ -95,14 +95,3 @@ class GradientNoiseScale:
         """Returns the current (debiased) estimates of the squared mean gradient
         and gradient variance."""
         return self.ema_sq_norm / (1 - self.beta_cumprod), self.ema_var / (1 - self.beta_cumprod)
-
-    def get_lr_gain(self, n_large_batch, alpha=0.5):
-        """Returns the current learning rate gain for Adam or SGD.
-
-        Args:
-            n_large_batch (int): The current total minibatch size across all
-                devices.
-            alpha (float): The exponent for the learning rate gain (0.5 to 1
-                for Adam, 1 for SGD). Default: 0.5.
-        """
-        return (1 + self.gradient_noise_scale / n_large_batch) ** -alpha
