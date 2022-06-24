@@ -149,7 +149,7 @@ def main():
             tqdm.write('Sampling...')
         filename = f'{args.name}_demo_{step:08}.png'
         n_per_proc = math.ceil(args.n_to_sample / accelerator.num_processes)
-        x = torch.randn([n_per_proc, 3, size[0], size[1]], device=device) * sigma_max
+        x = torch.randn([n_per_proc, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
         sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_local_main_process)
         x_0 = accelerator.gather(x_0)[:args.n_to_sample]
@@ -166,7 +166,7 @@ def main():
             tqdm.write('Evaluating...')
         sigmas = sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
-            x = torch.randn([n, 3, size[0], size[1]], device=device) * sigma_max
+            x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
             x_0 = sampling.sample_lms(model_ema, x, sigmas, disable=True)
             return x_0
         fakes_features = evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
