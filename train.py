@@ -9,12 +9,12 @@ from pathlib import Path
 import accelerate
 import torch
 from torch import optim
+from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils as tv_utils
 from tqdm import trange, tqdm
 
 from k_diffusion import evaluation, gns, layers, models, sampling, utils
-
 
 def main():
     p = argparse.ArgumentParser()
@@ -36,6 +36,8 @@ def main():
                    help='the number of images to sample for demo grids')
     p.add_argument('--name', type=str, default='model',
                    help='the name of the run')
+    p.add_argument('--num-workers', type=int, default=8,
+                   help='the number of data loader workers')
     p.add_argument('--resume', type=str, 
                    help='the checkpoint to resume from')
     p.add_argument('--save-every', type=int, default=10000,
@@ -93,7 +95,7 @@ def main():
     ])
     train_set = datasets.ImageFolder(args.train_set, transform=tf)
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
-                               num_workers=16, persistent_workers=True)
+                               num_workers=args.num_workers, persistent_workers=True)
 
     inner_model, opt, train_dl = accelerator.prepare(inner_model, opt, train_dl)
     if use_wandb:
@@ -247,4 +249,5 @@ def main():
 
 
 if __name__ == '__main__':
+    mp.set_start_method('spawn')
     main()
