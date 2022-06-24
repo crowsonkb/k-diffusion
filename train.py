@@ -105,7 +105,7 @@ def main():
         gns_stats = gns.GradientNoiseScale()
     else:
         gns_stats = None
-    model = layers.Denoiser(inner_model, sigma_data=0.5)
+    model = layers.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
     model_ema = deepcopy(model)
 
     if args.resume:
