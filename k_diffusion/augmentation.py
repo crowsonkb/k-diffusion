@@ -75,6 +75,8 @@ class KarrasAugmentationPipeline:
 
         # apply the transformation
         image_orig = np.array(image, dtype=np.float32) / 255
+        if image_orig.ndim == 2:
+            image_orig = image_orig[..., None]
         tf = transform.AffineTransform(mat.numpy())
         image = transform.warp(image_orig, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
         image_orig = torch.as_tensor(image_orig).movedim(2, 0) * 2 - 1
