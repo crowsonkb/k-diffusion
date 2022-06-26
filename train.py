@@ -95,16 +95,6 @@ def main():
     sched = K.utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
     ema_sched = K.utils.EMAWarmup(power=2/3, max_value=0.9999)
 
-    tf_no_aug = transforms.Compose([
-        transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
-        transforms.CenterCrop(size[0]),
-        transforms.ToTensor(),
-        transforms.Normalize([0.5], [0.5])
-    ])
-    train_set_no_aug = datasets.ImageFolder(args.train_set, transform=tf_no_aug)
-    train_dl_no_aug = data.DataLoader(train_set_no_aug, args.batch_size, shuffle=True,
-                                      num_workers=args.num_workers)
-
     tf = transforms.Compose([
         transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
         transforms.CenterCrop(size[0]),
@@ -114,7 +104,7 @@ def main():
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
-    inner_model, opt, train_dl, train_dl_no_aug = accelerator.prepare(inner_model, opt, train_dl, train_dl_no_aug)
+    inner_model, opt, train_dl = accelerator.prepare(inner_model, opt, train_dl)
     if use_wandb:
         wandb.watch(inner_model)
     if args.gns:
@@ -142,9 +132,9 @@ def main():
         step = 0
 
     extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
-    train_iter_no_aug = iter(train_dl_no_aug)
+    train_iter = iter(train_dl)
     accelerator.print('Computing features for reals...')
-    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter_no_aug)[0], extractor, args.evaluate_n, args.batch_size)
+    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[0][1], extractor, args.evaluate_n, args.batch_size)
     if accelerator.is_main_process:
         metrics_log_filepath = Path(f'{args.name}_metrics.csv')
         if metrics_log_filepath.exists():
@@ -218,7 +208,7 @@ def main():
         while True:
             for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
                 opt.zero_grad()
-                reals, aug_cond = batch[0]
+                reals, _, aug_cond = batch[0]
                 noise = torch.randn_like(reals)
                 sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
                 loss = model.loss(reals, noise, sigma, aug_cond=aug_cond).mean()

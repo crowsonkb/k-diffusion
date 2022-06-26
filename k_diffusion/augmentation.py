@@ -38,7 +38,7 @@ class KarrasAugmentationPipeline:
 
     def __call__(self, image):
         h, w = image.size
-        mats = []
+        mats = [translate2d(h / 2 - 0.5, w / 2 - 0.5)]
 
         # x-flip
         a0 = torch.randint(2, []).float()
@@ -69,15 +69,17 @@ class KarrasAugmentationPipeline:
         mats.append(translate2d(self.a_trans * w * a6, self.a_trans * h * a7))
 
         # form the transformation matrix and conditioning vector
+        mats.append(translate2d(-h / 2 + 0.5, -w / 2 + 0.5))
         mat = reduce(operator.matmul, mats)
         cond = torch.stack([a0, a1, a2, a3.cos() - 1, a3.sin(), a5 * a4.cos(), a5 * a4.sin(), a6, a7])
 
         # apply the transformation
-        image = np.array(image, dtype=np.float32) / 255
+        image_orig = np.array(image, dtype=np.float32) / 255
         tf = transform.AffineTransform(mat.numpy())
-        image = transform.warp(image, tf, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
+        image = transform.warp(image_orig, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
+        image_orig = torch.as_tensor(image_orig).movedim(2, 0) * 2 - 1
         image = torch.as_tensor(image).movedim(2, 0) * 2 - 1
-        return image, cond
+        return image, image_orig, cond
 
 
 class KarrasAugmentWrapper(nn.Module):
