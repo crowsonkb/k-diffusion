@@ -2,7 +2,6 @@
 
 import argparse
 from copy import deepcopy
-import json
 import math
 from pathlib import Path
 
@@ -60,7 +59,7 @@ def main():
 
     mp.set_start_method(args.start_method)
 
-    model_config = json.load(open(args.model_config))
+    model_config = K.config.load_model_config(open(args.model_config))
     # TODO: allow non-square input sizes
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
