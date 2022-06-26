@@ -106,7 +106,7 @@ class SelfAttention2d(ConditionedModule):
         self.n_head = n_head
         self.qkv_proj = nn.Conv2d(c_in, c_in * 3, 1)
         self.out_proj = nn.Conv2d(c_in, c_in, 1)
-        self.dropout = nn.Dropout2d(dropout_rate, inplace=True)
+        self.dropout = nn.Dropout(dropout_rate)
 
     def forward(self, input, cond):
         n, c, h, w = input.shape
@@ -115,8 +115,9 @@ class SelfAttention2d(ConditionedModule):
         q, k, v = qkv.chunk(3, dim=1)
         scale = k.shape[3]**-0.25
         att = ((q * scale) @ (k.transpose(2, 3) * scale)).softmax(3)
+        att = self.dropout(att)
         y = (att @ v).transpose(2, 3).contiguous().view([n, c, h, w])
-        return input + self.dropout(self.out_proj(y))
+        return input + self.out_proj(y)
 
 
 # Downsampling/upsampling
