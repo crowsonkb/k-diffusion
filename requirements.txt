@@ -1,5 +1,6 @@
 accelerate
 einops
+kornia
 Pillow
 resize-right
 scikit-image
