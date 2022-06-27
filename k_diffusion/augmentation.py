@@ -53,11 +53,11 @@ class KarrasAugmentationPipeline:
         mats.append(scale2d(self.a_scale ** a2, self.a_scale ** a2))
         # rotation
         do = (torch.rand([]) < self.a_prob).float()
-        a3 = torch.rand([]) * (math.pi * 2 - math.pi) * do
+        a3 = (torch.rand([]) * 2 * math.pi - math.pi) * do
         mats.append(rotate2d(-a3))
         # anisotropy
         do = (torch.rand([]) < self.a_prob).float()
-        a4 = torch.rand([]) * (math.pi * 2 - math.pi) * do
+        a4 = (torch.rand([]) * 2 * math.pi - math.pi) * do
         a5 = torch.randn([]) * do
         mats.append(rotate2d(a4))
         mats.append(scale2d(self.a_aniso ** a5, self.a_aniso ** -a5))
