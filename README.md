@@ -13,7 +13,7 @@ $ accelerate config
 on all nodes, then running:
 
 ```sh
-$ accelerate launch train.py --train-set LOCATION_OF_TRAINING_SET --model-config MODEL_CONFIG
+$ accelerate launch train.py --train-set LOCATION_OF_TRAINING_SET --config CONFIG_FILE
 ```
 
 on all nodes.

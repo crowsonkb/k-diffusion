@@ -30,8 +30,8 @@ def main():
                    help='measure the gradient noise scale (DDP only)')
     p.add_argument('--lr', type=float, default=1e-4,
                    help='the learning rate')
-    p.add_argument('--model-config', type=str, required=True,
-                   help='the model config')
+    p.add_argument('--config', type=str, required=True,
+                   help='the configuration file')
     p.add_argument('--n-to-sample', type=int, default=64,
                    help='the number of images to sample for demo grids')
     p.add_argument('--name', type=str, default='model',
@@ -59,7 +59,8 @@ def main():
 
     mp.set_start_method(args.start_method)
 
-    model_config = K.config.load_model_config(open(args.model_config))
+    config = K.config.load_config(open(args.config))
+    model_config = config['model']
     # TODO: allow non-square input sizes
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
@@ -76,7 +77,8 @@ def main():
         model_config['channels'],
         model_config['self_attn_depths'],
         dropout_rate=model_config['dropout_rate'],
-        mapping_cond_dim=9,
+        mapping_cond_dim=model_config['mapping_cond_dim'] + 9,
+        unet_cond_dim=model_config['unet_cond_dim'],
     )
     inner_model = K.augmentation.KarrasAugmentWrapper(inner_model)
     accelerator.print('Parameters:', K.utils.n_params(inner_model))
@@ -85,10 +87,10 @@ def main():
     use_wandb = accelerator.is_main_process and args.wandb_project
     if use_wandb:
         import wandb
-        config = vars(args)
-        config['model_config'] = model_config
-        config['params'] = K.utils.n_params(inner_model)
-        wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=config, save_code=True)
+        log_config = vars(args)
+        log_config['config'] = config
+        log_config['parameters'] = K.utils.n_params(inner_model)
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
     opt = optim.AdamW(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999), eps=1e-6, weight_decay=1e-3)
     sched = K.utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
