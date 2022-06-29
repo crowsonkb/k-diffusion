@@ -176,13 +176,13 @@ def main():
             x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=True)
             return x_0
         fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
-        fid = K.evaluation.fid(fakes_features, reals_features)
-        kid = K.evaluation.kid(fakes_features, reals_features)
-        accelerator.print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-        if accelerator.is_main_process:
+        if accelerator.is_local_main_process:
+            fid = K.evaluation.fid(fakes_features, reals_features)
+            kid = K.evaluation.kid(fakes_features, reals_features)
+            print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
-        if use_wandb:
-            wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
+            if use_wandb:
+                wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
     def save():
         accelerator.wait_for_everyone()
