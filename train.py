@@ -20,6 +20,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
+    p.add_argument('--config', type=str, required=True,
+                   help='the configuration file')
     p.add_argument('--demo-every', type=int, default=500,
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-every', type=int, default=10000,
@@ -28,10 +30,8 @@ def main():
                    help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only)')
-    p.add_argument('--lr', type=float, default=1e-4,
+    p.add_argument('--lr', type=float,
                    help='the learning rate')
-    p.add_argument('--config', type=str, required=True,
-                   help='the configuration file')
     p.add_argument('--n-to-sample', type=int, default=64,
                    help='the number of images to sample for demo grids')
     p.add_argument('--name', type=str, default='model',
@@ -61,6 +61,10 @@ def main():
 
     config = K.config.load_config(open(args.config))
     model_config = config['model']
+    opt_config = config['optimizer']
+    sched_config = config['lr_sched']
+    ema_sched_config = config['ema_sched']
+
     # TODO: allow non-square input sizes
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
@@ -92,9 +96,22 @@ def main():
         log_config['parameters'] = K.utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
-    opt = optim.AdamW(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999), eps=1e-6, weight_decay=1e-3)
-    sched = K.utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
-    ema_sched = K.utils.EMAWarmup(power=2/3, max_value=0.9999)
+    assert opt_config['type'] == 'adamw'
+    opt = optim.AdamW(inner_model.parameters(),
+                      lr=opt_config['lr'] if args.lr is None else args.lr,
+                      betas=tuple(opt_config['betas']),
+                      eps=opt_config['eps'],
+                      weight_decay=opt_config['weight_decay'])
+
+    assert sched_config['type'] == 'inverse'
+    sched = K.utils.InverseLR(opt,
+                              inv_gamma=sched_config['inv_gamma'],
+                              power=sched_config['power'],
+                              warmup=sched_config['warmup'])
+
+    assert ema_sched_config['type'] == 'inverse'
+    ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
+                                  max_value=ema_sched_config['max_value'])
 
     tf = transforms.Compose([
         transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),

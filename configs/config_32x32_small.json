@@ -17,5 +17,23 @@
             "mean": -1.2,
             "std": 1.2
         }
+    },
+    "optimizer": {
+        "type": "adamw",
+        "lr": 1e-4,
+        "betas": [0.95, 0.999],
+        "eps": 1e-6,
+        "weight_decay": 1e-3
+    },
+    "lr_sched": {
+        "type": "inverse",
+        "inv_gamma": 20000.0,
+        "power": 1.0,
+        "warmup": 0.99
+    },
+    "ema_sched": {
+        "type": "inverse",
+        "power": 0.6667,
+        "max_value": 0.9999
     }
 }
