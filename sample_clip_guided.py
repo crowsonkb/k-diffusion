@@ -52,7 +52,7 @@ def main():
                    help='the CLIP guidance scale')
     p.add_argument('--clip-model', type=str, default='ViT-B/16', choices=clip.available_models(),
                    help='the CLIP model to use')
-    p.add_argument('--model-config', type=str, required=True,
+    p.add_argument('--config', type=str, required=True,
                    help='the model config')
     p.add_argument('-n', type=int, default=64,
                    help='the number of images to sample')
@@ -62,7 +62,8 @@ def main():
                    help='the number of denoising steps')
     args = p.parse_args()
 
-    model_config = K.config.load_model_config(open(args.model_config))
+    config = K.config.load_config(open(args.config))
+    model_config = config['model']
     # TODO: allow non-square input sizes
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
