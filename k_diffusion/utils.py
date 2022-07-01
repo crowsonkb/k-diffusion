@@ -161,3 +161,13 @@ class InverseLR(optim.lr_scheduler._LRScheduler):
         lr_mult = (1 + self.last_epoch / self.inv_gamma) ** -self.power
         return [warmup * max(self.final_lr, base_lr * lr_mult)
                 for base_lr in self.base_lrs]
+
+
+def rand_log_logistic(shape, loc=0., scale=1., min_value=0., max_value=float('inf'), device='cpu', dtype=torch.float32):
+    """Draws samples from an optionally truncated log-logistic distribution."""
+    min_value = torch.as_tensor(min_value, device=device, dtype=torch.float64)
+    max_value = torch.as_tensor(max_value, device=device, dtype=torch.float64)
+    min_cdf = min_value.log().sub(loc).div(scale).sigmoid()
+    max_cdf = max_value.log().sub(loc).div(scale).sigmoid()
+    u = torch.rand(shape, device=device, dtype=torch.float64) * (max_cdf - min_cdf) + min_cdf
+    return u.logit().mul(scale).add(loc).exp().to(dtype)
