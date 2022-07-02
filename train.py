@@ -20,6 +20,8 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
+    p.add_argument('--config', type=str, required=True,
+                   help='the configuration file')
     p.add_argument('--demo-every', type=int, default=500,
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-every', type=int, default=10000,
@@ -28,10 +30,8 @@ def main():
                    help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only)')
-    p.add_argument('--lr', type=float, default=1e-4,
+    p.add_argument('--lr', type=float,
                    help='the learning rate')
-    p.add_argument('--model-config', type=str, required=True,
-                   help='the model config')
     p.add_argument('--n-to-sample', type=int, default=64,
                    help='the number of images to sample for demo grids')
     p.add_argument('--name', type=str, default='model',
@@ -63,7 +63,12 @@ def main():
 
     mp.set_start_method(args.start_method)
 
-    model_config = K.config.load_model_config(open(args.model_config))
+    config = K.config.load_config(open(args.config))
+    model_config = config['model']
+    opt_config = config['optimizer']
+    sched_config = config['lr_sched']
+    ema_sched_config = config['ema_sched']
+
     # TODO: allow non-square input sizes
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
@@ -80,7 +85,8 @@ def main():
         model_config['channels'],
         model_config['self_attn_depths'],
         dropout_rate=model_config['dropout_rate'],
-        mapping_cond_dim=9,
+        mapping_cond_dim=model_config['mapping_cond_dim'] + 9,
+        unet_cond_dim=model_config['unet_cond_dim'],
     )
     inner_model = K.augmentation.KarrasAugmentWrapper(inner_model)
     accelerator.print('Parameters:', K.utils.n_params(inner_model))
@@ -89,14 +95,27 @@ def main():
     use_wandb = accelerator.is_main_process and args.wandb_project
     if use_wandb:
         import wandb
-        config = vars(args)
-        config['model_config'] = model_config
-        config['params'] = K.utils.n_params(inner_model)
-        wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=config, save_code=True)
+        log_config = vars(args)
+        log_config['config'] = config
+        log_config['parameters'] = K.utils.n_params(inner_model)
+        wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
-    opt = optim.AdamW(inner_model.parameters(), lr=args.lr, betas=(0.95, 0.999), eps=1e-6, weight_decay=1e-3)
-    sched = K.utils.InverseLR(opt, inv_gamma=50000, power=1/2, warmup=0.99)
-    ema_sched = K.utils.EMAWarmup(power=2/3, max_value=0.9999)
+    assert opt_config['type'] == 'adamw'
+    opt = optim.AdamW(inner_model.parameters(),
+                      lr=opt_config['lr'] if args.lr is None else args.lr,
+                      betas=tuple(opt_config['betas']),
+                      eps=opt_config['eps'],
+                      weight_decay=opt_config['weight_decay'])
+
+    assert sched_config['type'] == 'inverse'
+    sched = K.utils.InverseLR(opt,
+                              inv_gamma=sched_config['inv_gamma'],
+                              power=sched_config['power'],
+                              warmup=sched_config['warmup'])
+
+    assert ema_sched_config['type'] == 'inverse'
+    ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
+                                  max_value=ema_sched_config['max_value'])
 
     tf = transforms.Compose([
         transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
@@ -189,13 +208,13 @@ def main():
             x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=True)
             return x_0
         fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
-        fid = K.evaluation.fid(fakes_features, reals_features)
-        kid = K.evaluation.kid(fakes_features, reals_features)
-        accelerator.print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-        if accelerator.is_main_process:
+        if accelerator.is_local_main_process:
+            fid = K.evaluation.fid(fakes_features, reals_features)
+            kid = K.evaluation.kid(fakes_features, reals_features)
+            print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
-        if use_wandb:
-            wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
+            if use_wandb:
+                wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
     def save():
         accelerator.wait_for_everyone()

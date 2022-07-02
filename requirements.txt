@@ -1,5 +1,6 @@
 accelerate
 einops
+jsonmerge
 kornia
 Pillow
 resize-right
