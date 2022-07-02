@@ -12,7 +12,7 @@ from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
 from tqdm import trange, tqdm
-
+from functools import partial
 import k_diffusion as K
 
 
@@ -107,13 +107,12 @@ def main():
     if args.hf_datasets:
         from datasets import load_dataset
         train_set = load_dataset(args.train_set)
-        def augs(examples):
-            images = [tf(image.convert("RGB")) for image in examples["image"]]
-            return images
-        train_set.set_transform(augs)
-        train_set = train_set['train'][args.hf_datasets_key]
+        train_set.set_transform(partial(K.utils.augs, tfms=tf, datasets_key=args.hf_datasets_key))
+        train_set = train_set['train']
+        batch_key = args.hf_datasets_key
     else:
         train_set = datasets.ImageFolder(args.train_set, transform=tf)
+        batch_key = 0
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
@@ -147,7 +146,7 @@ def main():
     extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
     train_iter = iter(train_dl)
     accelerator.print('Computing features for reals...')
-    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[0][1], extractor, args.evaluate_n, args.batch_size)
+    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[batch_key][1], extractor, args.evaluate_n, args.batch_size)
     if accelerator.is_main_process:
         metrics_log_filepath = Path(f'{args.name}_metrics.csv')
         if metrics_log_filepath.exists():
@@ -221,7 +220,7 @@ def main():
         while True:
             for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
                 opt.zero_grad()
-                reals, _, aug_cond = batch[0]
+                reals, _, aug_cond = batch[batch_key]
                 noise = torch.randn_like(reals)
                 sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
                 loss = model.loss(reals, noise, sigma, aug_cond=aug_cond).mean()
