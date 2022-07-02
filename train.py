@@ -45,8 +45,12 @@ def main():
     p.add_argument('--start-method', type=str, default='spawn',
                    choices=['fork', 'forkserver', 'spawn'],
                    help='the multiprocessing start method')
+    p.add_argument('--hf-datasets', action='store_true', 
+                   help='load with HuggingFace Datasets')
     p.add_argument('--train-set', type=str, required=True,
                    help='the training set location')
+    p.add_argument('--hf-datasets-key', type=str,
+                   help='the key that gives the image for HuggingFace Datasets')
     p.add_argument('--wandb-entity', type=str,
                    help='the wandb entity name')
     p.add_argument('--wandb-group', type=str,
@@ -99,7 +103,17 @@ def main():
         transforms.CenterCrop(size[0]),
         K.augmentation.KarrasAugmentationPipeline(model_config['augment_prob']),
     ])
-    train_set = datasets.ImageFolder(args.train_set, transform=tf)
+
+    if args.hf_datasets:
+        from datasets import load_dataset
+        train_set = load_dataset(args.train_set)
+        def augs(examples):
+            images = [tf(image.convert("RGB")) for image in examples["image"]]
+            return images
+        train_set.set_transform(augs)
+        train_set = train_set['train'][args.hf_datasets_key]
+    else:
+        train_set = datasets.ImageFolder(args.train_set, transform=tf)
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
