@@ -51,7 +51,7 @@ def compute_features(accelerator, sample_fn, extractor_fn, n, batch_size):
     for i in trange(0, n_per_proc, batch_size, disable=not accelerator.is_local_main_process):
         cur_batch_size = min(n - i, batch_size)
         samples = sample_fn(cur_batch_size)[:cur_batch_size]
-        feats_all.append(accelerator.gather(extractor_fn(samples)).cpu())
+        feats_all.append(accelerator.gather(extractor_fn(samples)))
     return torch.cat(feats_all)[:n]
 
 
@@ -105,7 +105,7 @@ def fid(x, y, eps=1e-8):
     mean_term = (x_mean - y_mean).pow(2).sum()
     x_cov = torch.cov(x.T)
     y_cov = torch.cov(y.T)
-    eps_eye = torch.eye(x_cov.shape[0]) * eps
+    eps_eye = torch.eye(x_cov.shape[0], device=x_cov.device, dtype=x_cov.dtype) * eps
     x_cov_sqrt = sqrtm_eig(x_cov + eps_eye)
     cov_term = torch.trace(x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt + eps_eye))
     return mean_term + cov_term
