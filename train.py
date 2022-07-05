@@ -204,7 +204,8 @@ def main():
             fid = K.evaluation.fid(fakes_features, reals_features)
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-            print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
+            if accelerator.is_main_process:
+                print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
