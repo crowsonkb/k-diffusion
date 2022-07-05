@@ -107,11 +107,18 @@ def main():
                       eps=opt_config['eps'],
                       weight_decay=opt_config['weight_decay'])
 
-    assert sched_config['type'] == 'inverse'
-    sched = K.utils.InverseLR(opt,
-                              inv_gamma=sched_config['inv_gamma'],
-                              power=sched_config['power'],
-                              warmup=sched_config['warmup'])
+    if sched_config['type'] == 'inverse':
+        sched = K.utils.InverseLR(opt,
+                                inv_gamma=sched_config['inv_gamma'],
+                                power=sched_config['power'],
+                                warmup=sched_config['warmup'])
+    elif sched_config['type'] == 'exponential':
+        sched = K.utils.ExponentialLR(opt,
+                                      num_steps=sched_config['num_steps'],
+                                      decay=sched_config['decay'],
+                                      warmup=sched_config['warmup'])
+    else:
+        raise ValueError('Invalid schedule type')
 
     assert ema_sched_config['type'] == 'inverse'
     ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
@@ -176,9 +183,7 @@ def main():
 
     sigma_min = model_config['sigma_min']
     sigma_max = model_config['sigma_max']
-    assert model_config['sigma_sample_density']['type'] == 'lognormal'
-    sigma_mean = model_config['sigma_sample_density']['mean']
-    sigma_std = model_config['sigma_sample_density']['std']
+    sample_density = K.utils.make_sample_density(model_config['sigma_sample_density'])
 
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
@@ -241,7 +246,7 @@ def main():
                 opt.zero_grad()
                 reals, _, aug_cond = batch[batch_key]
                 noise = torch.randn_like(reals)
-                sigma = torch.distributions.LogNormal(sigma_mean, sigma_std).sample([reals.shape[0]]).to(device)
+                sigma = sample_density([reals.shape[0]], device=device)
                 loss = model.loss(reals, noise, sigma, aug_cond=aug_cond).mean()
                 accelerator.backward(loss)
                 if args.gns:
