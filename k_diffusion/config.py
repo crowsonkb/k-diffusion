@@ -11,6 +11,7 @@ def load_config(file):
             'augment_prob': 0.,
             'mapping_cond_dim': 0,
             'unet_cond_dim': 0,
+            'cross_attn_depths': None,
         },
         'optimizer': {
             'type': 'adamw',

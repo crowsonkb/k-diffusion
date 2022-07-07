@@ -120,6 +120,38 @@ class SelfAttention2d(ConditionedModule):
         return input + self.out_proj(y)
 
 
+class CrossAttention2d(ConditionedModule):
+    def __init__(self, c_dec, c_enc, n_head, norm_dec, dropout_rate=0.,
+                 cond_key='cross', cond_key_padding='cross_padding'):
+        super().__init__()
+        assert c_dec % n_head == 0
+        self.cond_key = cond_key
+        self.cond_key_padding = cond_key_padding
+        self.norm_enc = nn.LayerNorm(c_enc)
+        self.norm_dec = norm_dec(c_dec)
+        self.n_head = n_head
+        self.q_proj = nn.Conv2d(c_dec, c_dec, 1)
+        self.kv_proj = nn.Linear(c_enc, c_dec * 2)
+        self.out_proj = nn.Conv2d(c_dec, c_dec, 1)
+        self.dropout = nn.Dropout(dropout_rate)
+
+    def forward(self, input, cond):
+        n, c, h, w = input.shape
+        q = self.q_proj(self.norm_dec(input, cond))
+        q = q.view([n, self.n_head, c // self.n_head, h * w]).transpose(2, 3)
+        kv = self.kv_proj(self.norm_enc(cond[self.cond_key]))
+        kv = kv.view([n, -1, self.n_head * 2, c // self.n_head]).transpose(1, 2)
+        k, v = kv.chunk(2, dim=1)
+        scale = k.shape[3]**-0.25
+        att = ((q * scale) @ (k.transpose(2, 3) * scale))
+        att = att - (cond[self.cond_key_padding][:, None, None, :]) * 10000
+        att = att.softmax(3)
+        att = self.dropout(att)
+        y = (att @ v).transpose(2, 3)
+        y = y.contiguous().view([n, c, h, w])
+        return input + self.out_proj(y)
+
+
 # Downsampling/upsampling
 
 _kernels = {
