@@ -84,10 +84,7 @@ class ImageDenoiserModelV1(nn.Module):
         self.proj_out = nn.Conv2d(channels[0], c_in, 1)
         nn.init.zeros_(self.proj_out.weight)
         nn.init.zeros_(self.proj_out.bias)
-        if cross_cond_dim > 0:
-            if cross_attn_depths is None:
-                cross_attn_depths = self_attn_depths
-        else:
+        if cross_cond_dim == 0:
             cross_attn_depths = [False] * len(self_attn_depths)
         d_blocks, u_blocks = [], []
         for i in range(len(depths)):
