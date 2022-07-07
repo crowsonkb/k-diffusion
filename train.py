@@ -74,7 +74,7 @@ def main():
     print('Using device:', device, flush=True)
 
     assert model_config['type'] == 'image_v1'
-    inner_model = K.models.ImageDenoiserModel(
+    inner_model = K.models.ImageV1DenoiserModel(
         model_config['input_channels'],
         model_config['mapping_out'],
         model_config['depths'],

@@ -4,7 +4,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from . import layers, utils
+from .. import layers, utils
 
 
 class ResConvBlock(layers.ConditionedResidualBlock):
@@ -67,7 +67,7 @@ class MappingNet(nn.Sequential):
                 nn.init.orthogonal_(layer.weight)
 
 
-class ImageDenoiserModel(nn.Module):
+class ImageV1DenoiserModel(nn.Module):
     def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, mapping_cond_dim=0, unet_cond_dim=0, dropout_rate=0.):
         super().__init__()
         self.timestep_embed = layers.FourierFeatures(1, feats_in)
