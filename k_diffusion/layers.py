@@ -18,9 +18,9 @@ class Denoiser(nn.Module):
         self.sigma_data = sigma_data
 
     def get_scalings(self, sigma):
-        c_skip = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
-        c_out = sigma * self.sigma_data / (sigma**2 + self.sigma_data**2)**0.5
-        c_in = 1 / (sigma**2 + self.sigma_data**2)**0.5
+        c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
+        c_out = sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
+        c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
         return c_skip, c_out, c_in
 
     def loss(self, input, noise, sigma, **kwargs):
@@ -113,7 +113,7 @@ class SelfAttention2d(ConditionedModule):
         qkv = self.qkv_proj(self.norm_in(input, cond))
         qkv = qkv.view([n, self.n_head * 3, c // self.n_head, h * w]).transpose(2, 3)
         q, k, v = qkv.chunk(3, dim=1)
-        scale = k.shape[3]**-0.25
+        scale = k.shape[3] ** -0.25
         att = ((q * scale) @ (k.transpose(2, 3) * scale)).softmax(3)
         att = self.dropout(att)
         y = (att @ v).transpose(2, 3).contiguous().view([n, c, h, w])
@@ -142,7 +142,7 @@ class CrossAttention2d(ConditionedModule):
         kv = self.kv_proj(self.norm_enc(cond[self.cond_key]))
         kv = kv.view([n, -1, self.n_head * 2, c // self.n_head]).transpose(1, 2)
         k, v = kv.chunk(2, dim=1)
-        scale = k.shape[3]**-0.25
+        scale = k.shape[3] ** -0.25
         att = ((q * scale) @ (k.transpose(2, 3) * scale))
         att = att - (cond[self.cond_key_padding][:, None, None, :]) * 10000
         att = att.softmax(3)
