@@ -36,15 +36,16 @@ def to_d(x, sigma, denoised):
 
 
 @torch.no_grad()
-def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, second_order=True, s_churn=0.):
+def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, second_order=True, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.):
+    """Implements Algorithm 2 from Karras et al. (2022)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
-        gamma = min(s_churn / (len(sigmas) - 1), 2**0.5 - 1)
-        eps = torch.randn_like(x)
+        gamma = min(s_churn / (len(sigmas) - 1), 2 ** 0.5 - 1) if s_tmin <= sigmas[i] <= s_tmax else 0.
+        eps = torch.randn_like(x) * s_noise
         sigma_hat = sigmas[i] * (gamma + 1)
         if gamma > 0:
-            x = x + eps * (sigma_hat**2 - sigmas[i]**2)**0.5
+            x = x + eps * (sigma_hat ** 2 - sigmas[i] ** 2) ** 0.5
         denoised = model(x, sigma_hat * s_in, **extra_args)
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
