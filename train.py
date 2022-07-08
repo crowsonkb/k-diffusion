@@ -85,7 +85,8 @@ def main():
         unet_cond_dim=model_config['unet_cond_dim'],
     )
     inner_model = K.augmentation.KarrasAugmentWrapper(inner_model)
-    accelerator.print('Parameters:', K.utils.n_params(inner_model))
+    if accelerator.is_main_process:
+        print('Parameters:', K.utils.n_params(inner_model))
 
     # If logging to wandb, initialize the run
     use_wandb = accelerator.is_main_process and args.wandb_project
@@ -158,7 +159,8 @@ def main():
 
     extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
     train_iter = iter(train_dl)
-    accelerator.print('Computing features for reals...')
+    if accelerator.is_main_process:
+        print('Computing features for reals...')
     reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[0][1], extractor, args.evaluate_n, args.batch_size)
     if accelerator.is_main_process:
         metrics_log_filepath = Path(f'{args.name}_metrics.csv')
@@ -175,13 +177,13 @@ def main():
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
     def demo():
-        if accelerator.is_local_main_process:
+        if accelerator.is_main_process:
             tqdm.write('Sampling...')
         filename = f'{args.name}_demo_{step:08}.png'
         n_per_proc = math.ceil(args.n_to_sample / accelerator.num_processes)
         x = torch.randn([n_per_proc, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
-        x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_local_main_process)
+        x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_main_process)
         x_0 = accelerator.gather(x_0)[:args.n_to_sample]
         if accelerator.is_main_process:
             grid = utils.make_grid(x_0, nrow=math.ceil(args.n_to_sample ** 0.5), padding=0)
@@ -192,7 +194,7 @@ def main():
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
     def evaluate():
-        if accelerator.is_local_main_process:
+        if accelerator.is_main_process:
             tqdm.write('Evaluating...')
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
@@ -200,7 +202,7 @@ def main():
             x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=True)
             return x_0
         fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
-        if accelerator.is_local_main_process:
+        if accelerator.is_main_process:
             fid = K.evaluation.fid(fakes_features, reals_features)
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
@@ -212,7 +214,7 @@ def main():
     def save():
         accelerator.wait_for_everyone()
         filename = f'{args.name}_{step:08}.pth'
-        if accelerator.is_local_main_process:
+        if accelerator.is_main_process:
             tqdm.write(f'Saving to {filename}...')
         obj = {
             'model': accelerator.unwrap_model(model.inner_model).state_dict(),
@@ -230,13 +232,16 @@ def main():
 
     try:
         while True:
-            for batch in tqdm(train_dl, disable=not accelerator.is_local_main_process):
+            for batch in tqdm(train_dl, disable=not accelerator.is_main_process):
                 opt.zero_grad()
                 reals, _, aug_cond = batch[0]
                 noise = torch.randn_like(reals)
                 sigma = sample_density([reals.shape[0]], device=device)
-                loss = model.loss(reals, noise, sigma, aug_cond=aug_cond).mean()
-                accelerator.backward(loss)
+                losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
+                losses_all = accelerator.gather(losses.detach())
+                loss_local = losses.mean()
+                loss = losses_all.mean()
+                accelerator.backward(loss_local)
                 if args.gns:
                     sq_norm_small_batch, sq_norm_large_batch = accelerator.reduce(gns_stats_hook.get_stats(), 'mean').tolist()
                     gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
@@ -246,7 +251,7 @@ def main():
                 K.utils.ema_update(model, model_ema, ema_decay)
                 ema_sched.step()
 
-                if accelerator.is_local_main_process:
+                if accelerator.is_main_process:
                     if step % 25 == 0:
                         if args.gns:
                             tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.get_gns():g}')
