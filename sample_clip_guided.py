@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""CLIP guided sampling from k-diffusion models."""
+
 import argparse
 import math
 
@@ -39,7 +41,8 @@ def make_static_thresh_model_fn(model, value=1.):
 
 
 def main():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('prompt', type=str,
                    default='the prompt to use')
     p.add_argument('--batch-size', type=int, default=16,

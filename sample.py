@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""Samples from k-diffusion models."""
+
 import argparse
 import math
 
@@ -11,7 +13,8 @@ import k_diffusion as K
 
 
 def main():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
     p.add_argument('--checkpoint', type=str, required=True,

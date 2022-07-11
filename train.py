@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+"""Trains Karras et al. (2022) diffusion models."""
+
 import argparse
 from copy import deepcopy
 import math
@@ -17,7 +19,8 @@ import k_diffusion as K
 
 
 def main():
-    p = argparse.ArgumentParser()
+    p = argparse.ArgumentParser(description=__doc__,
+                                formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
     p.add_argument('--config', type=str, required=True,
