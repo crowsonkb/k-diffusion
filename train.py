@@ -73,18 +73,7 @@ def main():
     device = accelerator.device
     print('Using device:', device, flush=True)
 
-    assert model_config['type'] == 'image_v1'
-    inner_model = K.models.ImageDenoiserModelV1(
-        model_config['input_channels'],
-        model_config['mapping_out'],
-        model_config['depths'],
-        model_config['channels'],
-        model_config['self_attn_depths'],
-        dropout_rate=model_config['dropout_rate'],
-        mapping_cond_dim=model_config['mapping_cond_dim'] + 9,
-        unet_cond_dim=model_config['unet_cond_dim'],
-    )
-    inner_model = K.augmentation.KarrasAugmentWrapper(inner_model)
+    inner_model = K.config.make_model(config)
     if accelerator.is_main_process:
         print('Parameters:', K.utils.n_params(inner_model))
 
@@ -172,7 +161,7 @@ def main():
 
     sigma_min = model_config['sigma_min']
     sigma_max = model_config['sigma_max']
-    sample_density = K.utils.make_sample_density(model_config['sigma_sample_density'])
+    sample_density = K.config.make_sample_density(model_config)
 
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)

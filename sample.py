@@ -36,20 +36,9 @@ def main():
     device = accelerator.device
     print('Using device:', device, flush=True)
 
-    assert model_config['type'] == 'image_v1'
-    inner_model = K.models.ImageDenoiserModelV1(
-        model_config['input_channels'],
-        model_config['mapping_out'],
-        model_config['depths'],
-        model_config['channels'],
-        model_config['self_attn_depths'],
-        dropout_rate=model_config['dropout_rate'],
-        mapping_cond_dim=9,
-    )
-    inner_model = K.augmentation.KarrasAugmentWrapper(inner_model)
+    inner_model = K.config.make_model(config).eval().requires_grad_(False).to(device)
     inner_model.load_state_dict(torch.load(args.checkpoint, map_location='cpu')['model_ema'])
     accelerator.print('Parameters:', K.utils.n_params(inner_model))
-    inner_model = accelerator.prepare(inner_model)
     model = K.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
 
     sigma_min = model_config['sigma_min']

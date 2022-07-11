@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from functools import partial
 import math
 import warnings
 
@@ -226,21 +225,3 @@ def rand_log_uniform(shape, min_value, max_value, device='cpu', dtype=torch.floa
     min_value = math.log(min_value)
     max_value = math.log(max_value)
     return (torch.rand(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value).exp()
-
-
-def make_sample_density(config):
-    if config['type'] == 'lognormal':
-        loc = config['mean'] if 'mean' in config else config['loc']
-        scale = config['std'] if 'std' in config else config['scale']
-        return partial(rand_log_normal, loc=loc, scale=scale)
-    if config['type'] == 'loglogistic':
-        loc = config['loc']
-        scale = config['scale']
-        min_value = config['min_value'] if 'min_value' in config else 0.
-        max_value = config['max_value'] if 'max_value' in config else float('inf')
-        return partial(rand_log_logistic, loc=loc, scale=scale, min_value=min_value, max_value=max_value)
-    if config['type'] == 'loguniform':
-        min_value = config['min_value']
-        max_value = config['max_value']
-        return partial(rand_log_uniform, min_value=min_value, max_value=max_value)
-    raise ValueError('Unknown sample density type')
