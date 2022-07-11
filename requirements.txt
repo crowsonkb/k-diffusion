@@ -11,3 +11,4 @@ torchvision
 tqdm
 wandb
 git+https://github.com/openai/CLIP
+nicefid

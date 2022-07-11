@@ -13,6 +13,7 @@ from torch import optim
 from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
+import nicefid
 from tqdm import trange, tqdm
 
 import k_diffusion as K
@@ -149,11 +150,10 @@ def main():
         epoch = 0
         step = 0
 
-    extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
-    train_iter = iter(train_dl)
     if accelerator.is_main_process:
         print('Computing features for reals...')
-    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[0][1], extractor, args.evaluate_n, args.batch_size)
+    reals_features = nicefid.Features.from_directory(args.train_set, args.batch_size)
+
     if accelerator.is_main_process:
         metrics_log_filepath = Path(f'{args.name}_metrics.csv')
         if metrics_log_filepath.exists():
@@ -189,14 +189,15 @@ def main():
         if accelerator.is_main_process:
             tqdm.write('Evaluating...')
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
-        def sample_fn(n):
-            x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
-            x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=True)
-            return x_0
-        fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
+        def generator():
+            for _ in range(args.evaluate_n // args.batch_size):
+                x = torch.randn([args.batch_size, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
+                x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=True)
+                yield x_0.clamp(-1, 1).add(1).div(2)
+        fakes_features = nicefid.Features.from_iterator(generator())
         if accelerator.is_main_process:
-            fid = K.evaluation.fid(fakes_features, reals_features)
-            kid = K.evaluation.kid(fakes_features, reals_features)
+            fid = nicefid.compute_fid(fakes_features, reals_features)
+            kid = nicefid.compute_kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             if accelerator.is_main_process:
                 print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
