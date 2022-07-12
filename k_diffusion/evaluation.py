@@ -1,31 +1,30 @@
 import math
+import os
+from pathlib import Path
 
+from cleanfid.inception_torchscript import InceptionV3W
 import clip
 from resize_right import resize
 import torch
 from torch import nn
 from torch.nn import functional as F
-from torchvision import models, transforms
-from torchvision.models import feature_extraction
-from tqdm import trange, tqdm
-import warnings
+from torchvision import transforms
+from tqdm import trange
 
 
 class InceptionV3FeatureExtractor(nn.Module):
     def __init__(self, device='cpu'):
         super().__init__()
-        model = models.inception_v3(pretrained=True).to(device).eval().requires_grad_(False)
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore')
-            self.extractor = feature_extraction.create_feature_extractor(model, {'flatten': 'out'})
-        self.normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        path = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'k-diffusion'
+        path.mkdir(parents=True, exist_ok=True)
+        self.model = InceptionV3W(str(path), resize_inside=False).to(device)
         self.size = (299, 299)
 
     def forward(self, x):
         if x.shape[2:4] != self.size:
-            x = resize(x.add(1).div(2), out_shape=self.size, pad_mode='reflect').clamp(0, 1)
-        x = self.normalize(x)
-        return self.extractor(x)['out']
+            x = resize(x, out_shape=self.size, pad_mode='reflect')
+        x = (x * 127.5 + 127.5).clamp(0, 255)
+        return self.model(x)
 
 
 class CLIPFeatureExtractor(nn.Module):
@@ -106,6 +105,8 @@ def fid(x, y, eps=1e-8):
     x_cov = torch.cov(x.T)
     y_cov = torch.cov(y.T)
     eps_eye = torch.eye(x_cov.shape[0], device=x_cov.device, dtype=x_cov.dtype) * eps
-    x_cov_sqrt = sqrtm_eig(x_cov + eps_eye)
-    cov_term = torch.trace(x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt + eps_eye))
+    x_cov = x_cov + eps_eye
+    y_cov = y_cov + eps_eye
+    x_cov_sqrt = sqrtm_eig(x_cov)
+    cov_term = torch.trace(x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt))
     return mean_term + cov_term
