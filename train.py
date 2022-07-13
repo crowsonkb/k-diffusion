@@ -74,7 +74,7 @@ def main():
 
     accelerator = accelerate.Accelerator()
     device = accelerator.device
-    print('Using device:', device, flush=True)
+    print(f'Process {accelerator.process_index} using device: {device}', flush=True)
 
     inner_model = K.config.make_model(config)
     if accelerator.is_main_process:
