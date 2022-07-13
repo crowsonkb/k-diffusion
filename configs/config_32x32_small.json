@@ -3,6 +3,7 @@
         "type": "image_v1",
         "input_channels": 3,
         "input_size": [32, 32],
+        "patch_size": 1,
         "mapping_out": 256,
         "depths": [2, 4, 4],
         "channels": [128, 256, 512],

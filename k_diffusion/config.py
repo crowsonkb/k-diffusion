@@ -10,6 +10,7 @@ def load_config(file):
     defaults = {
         'model': {
             'sigma_data': 1.,
+            'patch_size': 1,
             'dropout_rate': 0.,
             'augment_prob': 0.,
             'mapping_cond_dim': 0,
@@ -49,6 +50,7 @@ def make_model(config):
         config['channels'],
         config['self_attn_depths'],
         config['cross_attn_depths'],
+        patch_size=config['patch_size'],
         dropout_rate=config['dropout_rate'],
         mapping_cond_dim=config['mapping_cond_dim'] + 9,
         unet_cond_dim=config['unet_cond_dim'],

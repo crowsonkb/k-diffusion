@@ -74,14 +74,15 @@ class MappingNet(nn.Sequential):
 
 
 class ImageDenoiserModelV1(nn.Module):
-    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, cross_attn_depths=None, mapping_cond_dim=0, unet_cond_dim=0, cross_cond_dim=0, dropout_rate=0.):
+    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, cross_attn_depths=None, mapping_cond_dim=0, unet_cond_dim=0, cross_cond_dim=0, dropout_rate=0., patch_size=1):
         super().__init__()
+        self.patch_size = patch_size
         self.timestep_embed = layers.FourierFeatures(1, feats_in)
         if mapping_cond_dim > 0:
             self.mapping_cond = nn.Linear(mapping_cond_dim, feats_in, bias=False)
         self.mapping = MappingNet(feats_in, feats_in)
-        self.proj_in = nn.Conv2d(c_in + unet_cond_dim, channels[0], 1)
-        self.proj_out = nn.Conv2d(channels[0], c_in, 1)
+        self.proj_in = nn.Conv2d((c_in + unet_cond_dim) * self.patch_size ** 2, channels[0], 1)
+        self.proj_out = nn.Conv2d(channels[0], c_in * self.patch_size ** 2, 1)
         nn.init.zeros_(self.proj_out.weight)
         nn.init.zeros_(self.proj_out.bias)
         if cross_cond_dim == 0:
@@ -107,7 +108,11 @@ class ImageDenoiserModelV1(nn.Module):
         if cross_cond is not None:
             cond['cross'] = cross_cond
             cond['cross_padding'] = cross_cond_padding
+        if self.patch_size > 1:
+            input = F.pixel_unshuffle(input, self.patch_size)
         input = self.proj_in(input)
         input = self.u_net(input, cond)
         input = self.proj_out(input)
+        if self.patch_size > 1:
+            input = F.pixel_shuffle(input, self.patch_size)
         return input
