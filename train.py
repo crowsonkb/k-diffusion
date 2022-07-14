@@ -161,6 +161,7 @@ def main():
         else:
             metrics_log_file = open(metrics_log_filepath, 'w')
             print('step', 'fid', 'kid', sep=',', file=metrics_log_file, flush=True)
+    del train_iter
 
     sigma_min = model_config['sigma_min']
     sigma_max = model_config['sigma_max']
