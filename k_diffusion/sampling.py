@@ -2,7 +2,7 @@ import math
 
 from scipy import integrate
 import torch
-from tqdm import trange, tqdm
+from tqdm.auto import trange, tqdm
 
 from . import utils
 

@@ -13,7 +13,7 @@ from torch import optim
 from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
-from tqdm import trange, tqdm
+from tqdm.auto import trange, tqdm
 
 import k_diffusion as K
 

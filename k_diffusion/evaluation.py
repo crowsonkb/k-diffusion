@@ -9,7 +9,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 from torchvision import transforms
-from tqdm import trange
+from tqdm.auto import trange
 
 
 class InceptionV3FeatureExtractor(nn.Module):
