@@ -15,6 +15,7 @@ def load_config(file):
             'augment_prob': 0.,
             'mapping_cond_dim': 0,
             'unet_cond_dim': 0,
+            'cross_cond_dim': 0,
             'cross_attn_depths': None,
         },
         'optimizer': {
@@ -54,6 +55,7 @@ def make_model(config):
         dropout_rate=config['dropout_rate'],
         mapping_cond_dim=config['mapping_cond_dim'] + 9,
         unet_cond_dim=config['unet_cond_dim'],
+        cross_cond_dim=config['cross_cond_dim'],
     )
     model = augmentation.KarrasAugmentWrapper(model)
     return model
