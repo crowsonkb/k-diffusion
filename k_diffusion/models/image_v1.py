@@ -24,7 +24,7 @@ class ResConvBlock(layers.ConditionedResidualBlock):
 
 class DBlock(layers.ConditionedSequential):
     def __init__(self, n_layers, feats_in, c_in, c_mid, c_out, group_size=32, head_size=64, dropout_rate=0., downsample=False, self_attn=False, cross_attn=False, c_enc=0):
-        modules = [layers.Downsample2d()] if downsample else []
+        modules = [nn.Identity()]
         for i in range(n_layers):
             my_c_in = c_in if i == 0 else c_mid
             my_c_out = c_mid if i < n_layers - 1 else c_out
@@ -36,6 +36,11 @@ class DBlock(layers.ConditionedSequential):
                 norm = lambda c_in: layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
                 modules.append(layers.CrossAttention2d(my_c_out, c_enc, max(1, my_c_out // head_size), norm, dropout_rate))
         super().__init__(*modules)
+        self.set_downsample(downsample)
+
+    def set_downsample(self, downsample):
+        self[0] = layers.Downsample2d() if downsample else nn.Identity()
+        return self
 
 
 class UBlock(layers.ConditionedSequential):
@@ -51,14 +56,18 @@ class UBlock(layers.ConditionedSequential):
             if cross_attn:
                 norm = lambda c_in: layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
                 modules.append(layers.CrossAttention2d(my_c_out, c_enc, max(1, my_c_out // head_size), norm, dropout_rate))
-        if upsample:
-            modules.append(layers.Upsample2d())
+        modules.append(nn.Identity())
         super().__init__(*modules)
+        self.set_upsample(upsample)
 
     def forward(self, input, cond, skip=None):
         if skip is not None:
             input = torch.cat([input, skip], dim=1)
         return super().forward(input, cond)
+
+    def set_upsample(self, upsample):
+        self[-1] = layers.Upsample2d() if upsample else nn.Identity()
+        return self
 
 
 class MappingNet(nn.Sequential):
@@ -74,28 +83,31 @@ class MappingNet(nn.Sequential):
 
 
 class ImageDenoiserModelV1(nn.Module):
-    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, cross_attn_depths=None, mapping_cond_dim=0, unet_cond_dim=0, cross_cond_dim=0, dropout_rate=0., patch_size=1):
+    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, cross_attn_depths=None, mapping_cond_dim=0, unet_cond_dim=0, cross_cond_dim=0, dropout_rate=0., patch_size=1, skip_stages=0):
         super().__init__()
+        self.c_in = c_in
+        self.channels = channels
+        self.unet_cond_dim = unet_cond_dim
         self.patch_size = patch_size
         self.timestep_embed = layers.FourierFeatures(1, feats_in)
         if mapping_cond_dim > 0:
             self.mapping_cond = nn.Linear(mapping_cond_dim, feats_in, bias=False)
         self.mapping = MappingNet(feats_in, feats_in)
-        self.proj_in = nn.Conv2d((c_in + unet_cond_dim) * self.patch_size ** 2, channels[0], 1)
-        self.proj_out = nn.Conv2d(channels[0], c_in * self.patch_size ** 2, 1)
+        self.proj_in = nn.Conv2d((c_in + unet_cond_dim) * self.patch_size ** 2, channels[max(0, skip_stages - 1)], 1)
+        self.proj_out = nn.Conv2d(channels[max(0, skip_stages - 1)], c_in * self.patch_size ** 2, 1)
         nn.init.zeros_(self.proj_out.weight)
         nn.init.zeros_(self.proj_out.bias)
         if cross_cond_dim == 0:
             cross_attn_depths = [False] * len(self_attn_depths)
         d_blocks, u_blocks = [], []
         for i in range(len(depths)):
-            my_c_in = channels[i] if i == 0 else channels[i - 1]
-            d_blocks.append(DBlock(depths[i], feats_in, my_c_in, channels[i], channels[i], downsample=i > 0, self_attn=self_attn_depths[i], cross_attn=cross_attn_depths[i], c_enc=cross_cond_dim, dropout_rate=dropout_rate))
+            my_c_in = channels[max(0, i - 1)]
+            d_blocks.append(DBlock(depths[i], feats_in, my_c_in, channels[i], channels[i], downsample=i > skip_stages, self_attn=self_attn_depths[i], cross_attn=cross_attn_depths[i], c_enc=cross_cond_dim, dropout_rate=dropout_rate))
         for i in range(len(depths)):
             my_c_in = channels[i] * 2 if i < len(depths) - 1 else channels[i]
-            my_c_out = channels[i] if i == 0 else channels[i - 1]
-            u_blocks.append(UBlock(depths[i], feats_in, my_c_in, channels[i], my_c_out, upsample=i > 0, self_attn=self_attn_depths[i], cross_attn=cross_attn_depths[i], c_enc=cross_cond_dim, dropout_rate=dropout_rate))
-        self.u_net = layers.UNet(d_blocks, reversed(u_blocks))
+            my_c_out = channels[max(0, i - 1)]
+            u_blocks.append(UBlock(depths[i], feats_in, my_c_in, channels[i], my_c_out, upsample=i > skip_stages, self_attn=self_attn_depths[i], cross_attn=cross_attn_depths[i], c_enc=cross_cond_dim, dropout_rate=dropout_rate))
+        self.u_net = layers.UNet(d_blocks, reversed(u_blocks), skip_stages=skip_stages)
 
     def forward(self, input, sigma, mapping_cond=None, unet_cond=None, cross_cond=None, cross_cond_padding=None):
         c_noise = sigma.log() / 4
@@ -116,3 +128,22 @@ class ImageDenoiserModelV1(nn.Module):
         if self.patch_size > 1:
             input = F.pixel_shuffle(input, self.patch_size)
         return input
+
+    def set_skip_stages(self, skip_stages):
+        self.proj_in = nn.Conv2d(self.proj_in.in_channels, self.channels[max(0, skip_stages - 1)], 1)
+        self.proj_out = nn.Conv2d(self.channels[max(0, skip_stages - 1)], self.proj_out.out_channels, 1)
+        nn.init.zeros_(self.proj_out.weight)
+        nn.init.zeros_(self.proj_out.bias)
+        self.u_net.skip_stages = skip_stages
+        for i, block in enumerate(self.u_net.d_blocks):
+            block.set_downsample(i > skip_stages)
+        for i, block in enumerate(reversed(self.u_net.u_blocks)):
+            block.set_upsample(i > skip_stages)
+        return self
+
+    def set_patch_size(self, patch_size):
+        self.patch_size = patch_size
+        self.proj_in = nn.Conv2d((self.c_in + self.unet_cond_dim) * self.patch_size ** 2, self.channels[max(0, self.u_net.skip_stages - 1)], 1)
+        self.proj_out = nn.Conv2d(self.channels[max(0, self.u_net.skip_stages - 1)], self.c_in * self.patch_size ** 2, 1)
+        nn.init.zeros_(self.proj_out.weight)
+        nn.init.zeros_(self.proj_out.bias)

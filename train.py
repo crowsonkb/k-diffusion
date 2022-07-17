@@ -33,6 +33,10 @@ def main():
                    help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only)')
+    p.add_argument('--grow', type=str,
+                   help='the checkpoint to grow from')
+    p.add_argument('--grow-config', type=str,
+                   help='the configuration file of the model to grow from')
     p.add_argument('--lr', type=float,
                    help='the learning rate')
     p.add_argument('--n-to-sample', type=int, default=64,
@@ -72,7 +76,8 @@ def main():
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
 
-    accelerator = accelerate.Accelerator()
+    ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=True)
+    accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs])
     device = accelerator.device
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
 
@@ -122,6 +127,23 @@ def main():
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
+    if args.grow and args.resume:
+        raise ValueError('Cannot --grow and --resume at the same time')
+
+    if args.grow:
+        if not args.grow_config:
+            raise ValueError('--grow requires --grow-config')
+        ckpt = torch.load(args.grow, map_location='cpu')
+        old_config = K.config.load_config(open(args.grow_config))
+        old_inner_model = K.config.make_model(old_config)
+        old_inner_model.load_state_dict(ckpt['model_ema'])
+        if old_config['model']['skip_stages'] != model_config['skip_stages']:
+            old_inner_model.set_skip_stages(model_config['skip_stages'])
+        if old_config['model']['patch_size'] != model_config['patch_size']:
+            old_inner_model.set_patch_size(model_config['patch_size'])
+        inner_model.load_state_dict(old_inner_model.state_dict())
+        del ckpt, old_inner_model
+
     inner_model, opt, train_dl = accelerator.prepare(inner_model, opt, train_dl)
     if use_wandb:
         wandb.watch(inner_model)
@@ -130,6 +152,7 @@ def main():
         gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
+
     model = K.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
     model_ema = deepcopy(model)
 

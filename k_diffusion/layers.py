@@ -218,14 +218,15 @@ class FourierFeatures(nn.Module):
 # U-Nets
 
 class UNet(ConditionedModule):
-    def __init__(self, d_blocks, u_blocks):
+    def __init__(self, d_blocks, u_blocks, skip_stages=0):
         super().__init__()
         self.d_blocks = nn.ModuleList(d_blocks)
         self.u_blocks = nn.ModuleList(u_blocks)
+        self.skip_stages = skip_stages
 
     def forward(self, input, cond):
         skips = []
-        for block in self.d_blocks:
+        for block in self.d_blocks[self.skip_stages:]:
             input = block(input, cond)
             skips.append(input)
         for i, (block, skip) in enumerate(zip(self.u_blocks, reversed(skips))):

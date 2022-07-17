@@ -17,6 +17,7 @@ def load_config(file):
             'unet_cond_dim': 0,
             'cross_cond_dim': 0,
             'cross_attn_depths': None,
+            'skip_stages': 0,
         },
         'optimizer': {
             'type': 'adamw',
@@ -56,6 +57,7 @@ def make_model(config):
         mapping_cond_dim=config['mapping_cond_dim'] + 9,
         unet_cond_dim=config['unet_cond_dim'],
         cross_cond_dim=config['cross_cond_dim'],
+        skip_stages=config['skip_stages'],
     )
     model = augmentation.KarrasAugmentWrapper(model)
     return model
