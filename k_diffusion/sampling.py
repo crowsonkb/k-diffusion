@@ -7,27 +7,30 @@ from tqdm.auto import trange, tqdm
 from . import utils
 
 
+def append_zero(x):
+    return torch.cat([x, x.new_zeros([1])])
+
+
 def get_sigmas_karras(n, sigma_min, sigma_max, rho=7., device='cpu'):
     """Constructs the noise schedule of Karras et al. (2022)."""
     ramp = torch.linspace(0, 1, n)
     min_inv_rho = sigma_min ** (1 / rho)
     max_inv_rho = sigma_max ** (1 / rho)
     sigmas = (max_inv_rho + ramp * (min_inv_rho - max_inv_rho)) ** rho
-    sigmas = torch.cat([sigmas, sigmas.new_zeros([1])])
-    return sigmas.to(device)
+    return append_zero(sigmas).to(device)
 
 
 def get_sigmas_exponential(n, sigma_min, sigma_max, device='cpu'):
     """Constructs an exponential noise schedule."""
     sigmas = torch.linspace(math.log(sigma_max), math.log(sigma_min), n, device=device).exp()
-    return torch.cat([sigmas, sigmas.new_zeros([1])])
+    return append_zero(sigmas)
 
 
 def get_sigmas_vp(n, beta_d=19.9, beta_min=0.1, eps_s=1e-3, device='cpu'):
     """Constructs a continuous VP noise schedule."""
     t = torch.linspace(1, eps_s, n, device=device)
     sigmas = torch.sqrt(torch.exp(beta_d * t ** 2 / 2 + beta_min * t) - 1)
-    return torch.cat([sigmas, sigmas.new_zeros([1])])
+    return append_zero(sigmas)
 
 
 def to_d(x, sigma, denoised):
