@@ -1,3 +1,5 @@
+import math
+
 import torch
 from torch import nn
 
@@ -19,10 +21,10 @@ class VDenoiser(nn.Module):
         return c_skip, c_out, c_in
 
     def sigma_to_t(self, sigma):
-        return sigma.atan()
+        return sigma.atan() / math.pi * 2
 
     def t_to_sigma(self, t):
-        return t.tan()
+        return (t * math.pi / 2).tan()
 
     def loss(self, input, noise, sigma, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
