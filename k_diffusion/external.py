@@ -106,6 +106,6 @@ class DiscreteEpsDenoiser(DiscreteSchedule):
 class OpenAIDenoiser(DiscreteEpsDenoiser):
     """A wrapper for OpenAI diffusion models."""
 
-    def __init__(self, model, diffusion, quantize=False, device='cpu'):
+    def __init__(self, model, diffusion, quantize=False, has_learned_sigmas=True, device='cpu'):
         alphas_cumprod = torch.tensor(diffusion.alphas_cumprod, device=device, dtype=torch.float32)
-        super().__init__(model, alphas_cumprod, quantize=quantize, has_learned_sigmas=True)
+        super().__init__(model, alphas_cumprod, quantize=quantize, has_learned_sigmas=has_learned_sigmas)
