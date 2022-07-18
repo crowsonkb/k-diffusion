@@ -18,13 +18,15 @@ $ accelerate launch train.py --train-set LOCATION_OF_TRAINING_SET --config CONFI
 
 on all nodes.
 
-## Enhancements:
+## Enhancements/additional features:
 
-- This repo supports progressive growing.
+- k-diffusion supports progressive growing.
 
-- This repo contains a deterministic fourth order [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method) sampler (comparable to [PLMS](https://openreview.net/forum?id=PlKWVd2yBkY)) that produces higher quality outputs for a given number of forward passes through the model than the deterministic second order [Heun's method](https://en.wikipedia.org/wiki/Heun%27s_method) sampler (Algorithm 1) in Karras et al.
+- k-diffusion contains a deterministic fourth order [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method) sampler (comparable to [PLMS](https://openreview.net/forum?id=PlKWVd2yBkY)) that produces higher quality outputs for a given number of forward passes through the model than the deterministic second order [Heun's method](https://en.wikipedia.org/wiki/Heun%27s_method) sampler (Algorithm 1) in Karras et al.
 
-- This repo supports [CLIP](https://openai.com/blog/clip/) guided sampling from unconditional diffusion models (see `sample_clip_guided.py`). The 2nd order stochastic sampler (Algorithm 2) is particularly good for CLIP guided diffusion and is used by default for it.
+- k-diffusion supports [CLIP](https://openai.com/blog/clip/) guided sampling from unconditional diffusion models (see `sample_clip_guided.py`). The 2nd order stochastic sampler (Algorithm 2) is particularly good for CLIP guided diffusion and is used by default for it.
+
+- k-diffusion has wrappers for [v-diffusion-pytorch](https://github.com/crowsonkb/v-diffusion-pytorch) and [OpenAI diffusion](https://github.com/openai/guided-diffusion) models allowing them to be used with its samplers and ODE/SDE.
 
 ## To do:
 
@@ -33,5 +35,3 @@ on all nodes.
 - Latent diffusion
 
 - Log likelihood calculation
-
-- Port existing models to the Karras ODE using wrappers
