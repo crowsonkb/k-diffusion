@@ -39,11 +39,12 @@ class VDenoiser(nn.Module):
 
 
 class DiscreteSchedule(nn.Module):
-    """A mapping between noise level (sigma) and a discrete DDPM schedule."""
+    """A mapping between continuous noise levels (sigmas) and a list of discrete noise
+    levels."""
 
-    def __init__(self, alphas_cumprod, quantize):
+    def __init__(self, sigmas, quantize):
         super().__init__()
-        self.register_buffer('sigmas', ((1 - alphas_cumprod) / alphas_cumprod) ** 0.5)
+        self.register_buffer('sigmas', sigmas)
         self.quantize = quantize
 
     def get_sigmas(self, n=None):
@@ -71,12 +72,12 @@ class DiscreteSchedule(nn.Module):
         return (1 - w) * self.sigmas[low_idx] + w * self.sigmas[high_idx]
 
 
-class DiscreteEpsDenoiser(DiscreteSchedule):
-    """A wrapper for discrete schedule diffusion models that output eps
-    (the predicted noise)."""
+class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
+    """A wrapper for discrete schedule DDPM models that output eps (the predicted
+    noise)."""
 
     def __init__(self, model, alphas_cumprod, quantize, has_learned_sigmas=False):
-        super().__init__(alphas_cumprod, quantize)
+        super().__init__(((1 - alphas_cumprod) / alphas_cumprod) ** 0.5, quantize)
         self.inner_model = model
         self.sigma_data = 1.
         self.has_learned_sigmas = has_learned_sigmas
@@ -103,7 +104,7 @@ class DiscreteEpsDenoiser(DiscreteSchedule):
         return input - eps * c_out
 
 
-class OpenAIDenoiser(DiscreteEpsDenoiser):
+class OpenAIDenoiser(DiscreteEpsDDPMDenoiser):
     """A wrapper for OpenAI diffusion models."""
 
     def __init__(self, model, diffusion, quantize=False, has_learned_sigmas=True, device='cpu'):
