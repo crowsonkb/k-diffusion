@@ -5,6 +5,7 @@
 import argparse
 from copy import deepcopy
 import math
+import json
 from pathlib import Path
 
 import accelerate
@@ -127,9 +128,6 @@ def main():
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
-    if args.grow and args.resume:
-        raise ValueError('Cannot --grow and --resume at the same time')
-
     if args.grow:
         if not args.grow_config:
             raise ValueError('--grow requires --grow-config')
@@ -156,8 +154,17 @@ def main():
     model = K.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
     model_ema = deepcopy(model)
 
-    if args.resume:
-        ckpt = torch.load(args.resume, map_location='cpu')
+    state_path = Path(f'{args.name}_state.json')
+
+    if state_path.exists() or args.resume:
+        if args.resume:
+            ckpt_path = args.resume
+        if not args.resume:
+            state = json.load(open(state_path))
+            ckpt_path = state['latest_checkpoint']
+        if accelerator.is_main_process:
+            print(f'Resuming from {ckpt_path}...')
+        ckpt = torch.load(ckpt_path, map_location='cpu')
         accelerator.unwrap_model(model.inner_model).load_state_dict(ckpt['model'])
         accelerator.unwrap_model(model_ema.inner_model).load_state_dict(ckpt['model_ema'])
         opt.load_state_dict(ckpt['opt'])
@@ -243,6 +250,9 @@ def main():
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
         }
         accelerator.save(obj, filename)
+        if accelerator.is_main_process:
+            state_obj = {'latest_checkpoint': filename}
+            json.dump(state_obj, open(state_path, 'w'))
         if args.wandb_save_model and use_wandb:
             wandb.save(filename)
 
