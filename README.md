@@ -26,7 +26,7 @@ on all nodes.
 
 - k-diffusion supports [CLIP](https://openai.com/blog/clip/) guided sampling from unconditional diffusion models (see `sample_clip_guided.py`). The 2nd order stochastic sampler (Algorithm 2) is particularly good for CLIP guided diffusion and is used by default for it.
 
-- k-diffusion has wrappers for [v-diffusion-pytorch](https://github.com/crowsonkb/v-diffusion-pytorch) and [OpenAI diffusion](https://github.com/openai/guided-diffusion) models allowing them to be used with its samplers and ODE/SDE.
+- k-diffusion has wrappers for [v-diffusion-pytorch](https://github.com/crowsonkb/v-diffusion-pytorch), [OpenAI diffusion](https://github.com/openai/guided-diffusion), and [CompVis diffusion](https://github.com/CompVis/latent-diffusion) models allowing them to be used with its samplers and ODE/SDE.
 
 ## To do:
 
