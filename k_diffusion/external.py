@@ -114,3 +114,13 @@ class OpenAIDenoiser(DiscreteEpsDDPMDenoiser):
         if self.has_learned_sigmas:
             return model_output.chunk(2, dim=1)[0]
         return model_output
+
+
+class CompVisDenoiser(DiscreteEpsDDPMDenoiser):
+    """A wrapper for CompVis diffusion models."""
+
+    def __init__(self, model, quantize=False, device='cpu'):
+        super().__init__(model, model.alphas_cumprod, quantize=quantize)
+
+    def get_eps(self, *args, **kwargs):
+        return self.inner_model.apply_model(*args, **kwargs)
