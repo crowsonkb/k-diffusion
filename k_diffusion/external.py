@@ -76,21 +76,18 @@ class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
     """A wrapper for discrete schedule DDPM models that output eps (the predicted
     noise)."""
 
-    def __init__(self, model, alphas_cumprod, quantize, has_learned_sigmas=False):
+    def __init__(self, model, alphas_cumprod, quantize):
         super().__init__(((1 - alphas_cumprod) / alphas_cumprod) ** 0.5, quantize)
         self.inner_model = model
         self.sigma_data = 1.
-        self.has_learned_sigmas = has_learned_sigmas
 
     def get_scalings(self, sigma):
+        c_out = -sigma
         c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
-        return sigma, c_in
+        return c_out, c_in
 
     def get_eps(self, *args, **kwargs):
-        model_output = self.inner_model(*args, **kwargs)
-        if self.has_learned_sigmas:
-            return model_output.chunk(2, dim=1)[0]
-        return model_output
+        return self.inner_model(*args, **kwargs)
 
     def loss(self, input, noise, sigma, **kwargs):
         c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
@@ -101,7 +98,7 @@ class DiscreteEpsDDPMDenoiser(DiscreteSchedule):
     def forward(self, input, sigma, **kwargs):
         c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         eps = self.get_eps(input * c_in, self.sigma_to_t(sigma), **kwargs)
-        return input - eps * c_out
+        return input + eps * c_out
 
 
 class OpenAIDenoiser(DiscreteEpsDDPMDenoiser):
@@ -109,4 +106,11 @@ class OpenAIDenoiser(DiscreteEpsDDPMDenoiser):
 
     def __init__(self, model, diffusion, quantize=False, has_learned_sigmas=True, device='cpu'):
         alphas_cumprod = torch.tensor(diffusion.alphas_cumprod, device=device, dtype=torch.float32)
-        super().__init__(model, alphas_cumprod, quantize=quantize, has_learned_sigmas=has_learned_sigmas)
+        super().__init__(model, alphas_cumprod, quantize=quantize)
+        self.has_learned_sigmas = has_learned_sigmas
+
+    def get_eps(self, *args, **kwargs):
+        model_output = self.inner_model(*args, **kwargs)
+        if self.has_learned_sigmas:
+            return model_output.chunk(2, dim=1)[0]
+        return model_output
