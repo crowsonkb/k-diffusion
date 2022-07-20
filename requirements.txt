@@ -8,6 +8,7 @@ resize-right
 scikit-image
 scipy
 torch
+torchdiffeq
 torchvision
 tqdm
 wandb

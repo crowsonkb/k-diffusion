@@ -28,10 +28,10 @@ on all nodes.
 
 - k-diffusion has wrappers for [v-diffusion-pytorch](https://github.com/crowsonkb/v-diffusion-pytorch), [OpenAI diffusion](https://github.com/openai/guided-diffusion), and [CompVis diffusion](https://github.com/CompVis/latent-diffusion) models allowing them to be used with its samplers and ODE/SDE.
 
+- k-diffusion supports log likelihood calculation (not a variational lower bound) for native models and all wrapped models.
+
 ## To do:
 
 - Anything except unconditional image diffusion models
 
 - Latent diffusion
-
-- Log likelihood calculation
