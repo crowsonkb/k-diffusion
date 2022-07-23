@@ -9,13 +9,13 @@ An implementation of [Elucidating the Design Space of Diffusion-Based Generative
 To train models:
 
 ```sh
-$ ./train.py --config CONFIG_FILE --train-set LOCATION_OF_TRAINING_SET 
+$ ./train.py --config CONFIG_FILE --name RUN_NAME --train-set LOCATION_OF_TRAINING_SET 
 ```
 
 For instance, to train a model on MNIST:
 
 ```sh
-$ ./train.py --config configs/config_mnist.json --train-set data
+$ ./train.py --config configs/config_mnist.json --name RUN_NAME --train-set data
 ```
 
 The configuration file allows you to specify the dataset type. Currently supported types are `"imagefolder"` (a folder with one subfolder per image class, the classes are currently ignored), `"cifar10"` (CIFAR-10), and `"mnist"` (MNIST).
@@ -29,7 +29,7 @@ $ accelerate config
 on all nodes, then running:
 
 ```sh
-$ accelerate launch train.py --config CONFIG_FILE --train-set LOCATION_OF_TRAINING_SET
+$ accelerate launch train.py --config CONFIG_FILE --name RUN_NAME --train-set LOCATION_OF_TRAINING_SET
 ```
 
 on all nodes.
