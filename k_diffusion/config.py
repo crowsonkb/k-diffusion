@@ -19,6 +19,9 @@ def load_config(file):
             'cross_attn_depths': None,
             'skip_stages': 0,
         },
+        'dataset': {
+            'type': 'imagefolder',
+        },
         'optimizer': {
             'type': 'adamw',
             'lr': 1e-4,

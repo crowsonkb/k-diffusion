@@ -4,6 +4,22 @@ An implementation of [Elucidating the Design Space of Diffusion-Based Generative
 
 **This repo is a work in progress** (models may break on later versions, script options may change).
 
+## Training:
+
+To train models:
+
+```sh
+$ ./train.py --config CONFIG_FILE --train-set LOCATION_OF_TRAINING_SET 
+```
+
+For instance, to train a model on MNIST:
+
+```sh
+$ ./train.py --config configs/config_mnist.json --train-set data
+```
+
+The configuration file allows you to specify the dataset type. Currently supported types are `"imagefolder"` (a folder with one subfolder per image class, the classes are currently ignored), `"cifar10"` (CIFAR-10), and `"mnist"` (MNIST).
+
 Multi-GPU and multi-node training is supported with [Hugging Face Accelerate](https://huggingface.co/docs/accelerate/index). You can configure Accelerate by running:
 
 ```sh
@@ -13,14 +29,14 @@ $ accelerate config
 on all nodes, then running:
 
 ```sh
-$ accelerate launch train.py --train-set LOCATION_OF_TRAINING_SET --config CONFIG_FILE
+$ accelerate launch train.py --config CONFIG_FILE --train-set LOCATION_OF_TRAINING_SET
 ```
 
 on all nodes.
 
 ## Enhancements/additional features:
 
-- k-diffusion supports progressive growing.
+- k-diffusion models support progressive growing.
 
 - k-diffusion contains a deterministic fourth order [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method) sampler (comparable to [PLMS](https://openreview.net/forum?id=PlKWVd2yBkY)) that produces higher quality outputs for a given number of forward passes through the model than the deterministic second order [Heun's method](https://en.wikipedia.org/wiki/Heun%27s_method) sampler (Algorithm 1) in Karras et al.
 

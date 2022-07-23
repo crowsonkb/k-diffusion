@@ -23,6 +23,8 @@ class InceptionV3FeatureExtractor(nn.Module):
     def forward(self, x):
         if x.shape[2:4] != self.size:
             x = resize(x, out_shape=self.size, pad_mode='reflect')
+        if x.shape[1] == 1:
+            x = torch.cat([x] * 3, dim=1)
         x = (x * 127.5 + 127.5).clamp(0, 255)
         return self.model(x)
 

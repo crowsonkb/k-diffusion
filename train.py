@@ -69,6 +69,7 @@ def main():
 
     config = K.config.load_config(open(args.config))
     model_config = config['model']
+    dataset_config = config['dataset']
     opt_config = config['optimizer']
     sched_config = config['lr_sched']
     ema_sched_config = config['ema_sched']
@@ -124,7 +125,16 @@ def main():
         transforms.CenterCrop(size[0]),
         K.augmentation.KarrasAugmentationPipeline(model_config['augment_prob']),
     ])
-    train_set = datasets.ImageFolder(args.train_set, transform=tf)
+
+    if dataset_config['type'] == 'imagefolder':
+        train_set = datasets.ImageFolder(args.train_set, transform=tf)
+    elif dataset_config['type'] == 'cifar10':
+        train_set = datasets.CIFAR10(args.train_set, train=True, download=True, transform=tf)
+    elif dataset_config['type'] == 'mnist':
+        train_set = datasets.MNIST(args.train_set, train=True, download=True, transform=tf)
+    else:
+        raise ValueError('Invalid dataset type')
+
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
