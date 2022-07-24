@@ -20,7 +20,8 @@
         }
     },
     "dataset": {
-        "type": "imagefolder"
+        "type": "imagefolder",
+        "location": "/path/to/dataset"
     },
     "optimizer": {
         "type": "adamw",

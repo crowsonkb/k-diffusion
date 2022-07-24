@@ -20,7 +20,8 @@
         }
     },
     "dataset": {
-        "type": "cifar10"
+        "type": "cifar10",
+        "location": "data"
     },
     "optimizer": {
         "type": "adamw",

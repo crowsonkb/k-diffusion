@@ -20,7 +20,8 @@
         }
     },
     "dataset": {
-        "type": "mnist"
+        "type": "mnist",
+        "location": "data"
     },
     "optimizer": {
         "type": "adamw",

@@ -53,8 +53,6 @@ def main():
     p.add_argument('--start-method', type=str, default='spawn',
                    choices=['fork', 'forkserver', 'spawn'],
                    help='the multiprocessing start method')
-    p.add_argument('--train-set', type=str, required=True,
-                   help='the training set location')
     p.add_argument('--wandb-entity', type=str,
                    help='the wandb entity name')
     p.add_argument('--wandb-group', type=str,
@@ -127,11 +125,11 @@ def main():
     ])
 
     if dataset_config['type'] == 'imagefolder':
-        train_set = datasets.ImageFolder(args.train_set, transform=tf)
+        train_set = datasets.ImageFolder(dataset_config['location'], transform=tf)
     elif dataset_config['type'] == 'cifar10':
-        train_set = datasets.CIFAR10(args.train_set, train=True, download=True, transform=tf)
+        train_set = datasets.CIFAR10(dataset_config['location'], train=True, download=True, transform=tf)
     elif dataset_config['type'] == 'mnist':
-        train_set = datasets.MNIST(args.train_set, train=True, download=True, transform=tf)
+        train_set = datasets.MNIST(dataset_config['location'], train=True, download=True, transform=tf)
     else:
         raise ValueError('Invalid dataset type')
 
