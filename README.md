@@ -38,9 +38,9 @@ on all nodes.
 
 - k-diffusion models support progressive growing.
 
-- k-diffusion contains a deterministic fourth order [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method) sampler (comparable to [PLMS](https://openreview.net/forum?id=PlKWVd2yBkY)) that produces higher quality outputs for a given number of forward passes through the model than the deterministic second order [Heun's method](https://en.wikipedia.org/wiki/Heun%27s_method) sampler (Algorithm 1) in Karras et al.
+- k-diffusion implements a sampler inspired by [DPM-Solver](https://arxiv.org/abs/2206.00927) and Karras et al. (2022) Algorithm 2 that produces higher quality samples at the same number of function evalutions as Karras Algorithm 2. It also implements a [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method#Adams–Bashforth_methods) sampler (comparable to [PLMS](https://arxiv.org/abs/2202.09778)).
 
-- k-diffusion supports [CLIP](https://openai.com/blog/clip/) guided sampling from unconditional diffusion models (see `sample_clip_guided.py`). The 2nd order stochastic sampler (Algorithm 2) is particularly good for CLIP guided diffusion and is used by default for it.
+- k-diffusion supports [CLIP](https://openai.com/blog/clip/) guided sampling from unconditional diffusion models (see `sample_clip_guided.py`).
 
 - k-diffusion has wrappers for [v-diffusion-pytorch](https://github.com/crowsonkb/v-diffusion-pytorch), [OpenAI diffusion](https://github.com/openai/guided-diffusion), and [CompVis diffusion](https://github.com/CompVis/latent-diffusion) models allowing them to be used with its samplers and ODE/SDE.
 
