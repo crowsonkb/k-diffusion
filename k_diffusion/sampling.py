@@ -66,6 +66,37 @@ def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, 
     return x
 
 
+def get_ancestral_step(sigma_from, sigma_to):
+    """Calculates the noise level (sigma_down) to step down to and the amount
+    of noise to add (sigma_up) when doing an ancestral sampling step."""
+    sigma_up = (sigma_to ** 2 * (sigma_from ** 2 - sigma_to ** 2) / sigma_from ** 2) ** 0.5
+    sigma_down = (sigma_to ** 2 - sigma_up ** 2) ** 0.5
+    return sigma_down, sigma_up
+
+
+@torch.no_grad()
+def sample_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, second_order=True):
+    """Ancestral sampling with optional second-order corrections."""
+    extra_args = {} if extra_args is None else extra_args
+    s_in = x.new_ones([x.shape[0]])
+    for i in trange(len(sigmas) - 1, disable=disable):
+        denoised = model(x, sigmas[i] * s_in, **extra_args)
+        sigma_down, sigma_up = get_ancestral_step(sigmas[i], sigmas[i + 1])
+        if callback is not None:
+            callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
+        d = to_d(x, sigmas[i], denoised)
+        dt = sigma_down - sigmas[i]
+        if sigmas[i + 1] == 0 or not second_order:
+            x = x + d * dt
+        else:
+            x_2 = x + d * dt
+            denoised_2 = model(x_2, sigma_down * s_in, **extra_args)
+            dx_2 = to_d(x_2, sigma_down, denoised_2)
+            x = x + (d + dx_2) * dt / 2
+        x = x + torch.randn_like(x) * sigma_up
+    return x
+
+
 def linear_multistep_coeff(order, t, i, j):
     if order - 1 > i:
         raise ValueError(f'Order {order} too high for step {i}')
