@@ -5,3 +5,5 @@ __pycache__
 *.egg-info
 data
 *_demo_*.png
+wandb/*
+*.csv
