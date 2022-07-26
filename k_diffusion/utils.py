@@ -25,6 +25,12 @@ def to_pil_image(x):
     return TF.to_pil_image((x.clamp(-1, 1) + 1) / 2)
 
 
+def hf_datasets_augs_helper(examples, transform, image_key, mode='RGB'):
+    """Apply passed in transforms for HuggingFace Datasets."""
+    images = [transform(image.convert(mode)) for image in examples[image_key]]
+    return {image_key: images}
+
+
 def append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim

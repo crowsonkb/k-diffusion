@@ -15,6 +15,7 @@ from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
 from tqdm.auto import trange, tqdm
+from functools import partial
 
 import k_diffusion as K
 
@@ -130,8 +131,15 @@ def main():
         train_set = datasets.CIFAR10(dataset_config['location'], train=True, download=True, transform=tf)
     elif dataset_config['type'] == 'mnist':
         train_set = datasets.MNIST(dataset_config['location'], train=True, download=True, transform=tf)
+    elif dataset_config['type'] == 'huggingface':
+        from datasets import load_dataset
+        train_set = load_dataset(dataset_config['location'])
+        train_set.set_transform(partial(K.utils.hf_datasets_augs_helper, transform=tf, image_key=dataset_config['image_key']))
+        train_set = train_set['train']
     else:
         raise ValueError('Invalid dataset type')
+
+    image_key = dataset_config.get('image_key', 0)
 
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
@@ -191,7 +199,7 @@ def main():
     train_iter = iter(train_dl)
     if accelerator.is_main_process:
         print('Computing features for reals...')
-    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[0][1], extractor, args.evaluate_n, args.batch_size)
+    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
     if accelerator.is_main_process:
         metrics_log_filepath = Path(f'{args.name}_metrics.csv')
         if metrics_log_filepath.exists():
@@ -268,7 +276,7 @@ def main():
         while True:
             for batch in tqdm(train_dl, disable=not accelerator.is_main_process):
                 opt.zero_grad()
-                reals, _, aug_cond = batch[0]
+                reals, _, aug_cond = batch[image_key]
                 noise = torch.randn_like(reals)
                 sigma = sample_density([reals.shape[0]], device=device)
                 losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
