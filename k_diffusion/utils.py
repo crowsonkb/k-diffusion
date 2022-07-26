@@ -6,6 +6,10 @@ import torch
 from torch import optim
 from torchvision.transforms import functional as TF
 
+def augs(examples, tfms, datasets_key):
+    """ Apply passed in transforms for HuggingFace Datasets """
+    images = [tfms(image.convert("RGB")) for image in examples[datasets_key]]
+    return {datasets_key: images}
 
 def from_pil_image(x):
     """Converts from a PIL image to a tensor."""
