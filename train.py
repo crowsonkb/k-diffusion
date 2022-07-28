@@ -78,7 +78,7 @@ def main():
     size = model_config['input_size']
 
     ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=True)
-    accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs])
+    accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=opt_config['grad_accum_steps'])
     device = accelerator.device
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
 
@@ -275,20 +275,21 @@ def main():
     try:
         while True:
             for batch in tqdm(train_dl, disable=not accelerator.is_main_process):
-                opt.zero_grad()
-                reals, _, aug_cond = batch[image_key]
-                noise = torch.randn_like(reals)
-                sigma = sample_density([reals.shape[0]], device=device)
-                losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
-                losses_all = accelerator.gather(losses.detach())
-                loss_local = losses.mean()
-                loss = losses_all.mean()
-                accelerator.backward(loss_local)
-                if args.gns:
-                    sq_norm_small_batch, sq_norm_large_batch = accelerator.reduce(gns_stats_hook.get_stats(), 'mean').tolist()
-                    gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
-                opt.step()
-                sched.step()
+                with accelerator.accumulate(model):
+                    opt.zero_grad()
+                    reals, _, aug_cond = batch[image_key]
+                    noise = torch.randn_like(reals)
+                    sigma = sample_density([reals.shape[0]], device=device)
+                    losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
+                    losses_all = accelerator.gather(losses.detach())
+                    loss_local = losses.mean()
+                    loss = losses_all.mean()
+                    accelerator.backward(loss_local)
+                    if args.gns:
+                        sq_norm_small_batch, sq_norm_large_batch = accelerator.reduce(gns_stats_hook.get_stats(), 'mean').tolist()
+                        gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
+                    opt.step()
+                    sched.step()
                 ema_decay = ema_sched.get_value()
                 K.utils.ema_update(model, model_ema, ema_decay)
                 ema_sched.step()
