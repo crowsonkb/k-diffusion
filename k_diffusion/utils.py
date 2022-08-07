@@ -1,5 +1,9 @@
 from contextlib import contextmanager
+import hashlib
 import math
+from pathlib import Path
+import shutil
+import urllib
 import warnings
 
 import torch
@@ -42,6 +46,20 @@ def append_dims(x, target_dims):
 def n_params(module):
     """Returns the number of trainable parameters in a module."""
     return sum(p.numel() for p in module.parameters())
+
+
+def download_file(path, url, digest=None):
+    """Downloads a file if it does not exist, optionally checking its SHA-256 hash."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if not path.exists():
+        with urllib.request.urlopen(url) as response, open(path, 'wb') as f:
+            shutil.copyfileobj(response, f)
+    if digest is not None:
+        file_digest = hashlib.sha256(open(path, 'rb').read()).hexdigest()
+        if digest != file_digest:
+            raise OSError(f'hash of {path} (url: {url}) failed to validate')
+    return path
 
 
 @contextmanager
