@@ -16,6 +16,7 @@ from torch.utils import data
 from torchvision import datasets, transforms, utils
 from tqdm.auto import trange, tqdm
 from functools import partial
+import random
 
 import k_diffusion as K
 
@@ -33,6 +34,8 @@ def main():
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-n', type=int, default=2000,
                    help='the number of samples to draw to evaluate')
+    p.add_argument('--seed', type=int,
+                   help='the random seed for training')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only)')
     p.add_argument('--grad-accum-steps', type=int, default=1,
@@ -83,6 +86,13 @@ def main():
     accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps)
     device = accelerator.device
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
+
+    seed = args.seed
+    if seed is None:
+        seed = random.getrandbits(16)
+    seed += accelerator.process_index
+    print("Setting seed to", seed)
+    accelerate.utils.set_seed(seed)
 
     inner_model = K.config.make_model(config)
     if accelerator.is_main_process:
