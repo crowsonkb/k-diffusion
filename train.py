@@ -53,6 +53,8 @@ def main():
                    help='the number of images to sample for demo grids')
     p.add_argument('--save-every', type=int, default=10000,
                    help='save every this many steps')
+    p.add_argument('--seed', type=int,
+                   help='the random seed')
     p.add_argument('--start-method', type=str, default='spawn',
                    choices=['fork', 'forkserver', 'spawn'],
                    help='the multiprocessing start method')
@@ -83,6 +85,10 @@ def main():
     accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps)
     device = accelerator.device
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
+
+    if args.seed is not None:
+        seeds = torch.randint(-2 ** 63, 2 ** 63 - 1, [accelerator.num_processes], generator=torch.Generator().manual_seed(args.seed))
+        torch.manual_seed(seeds[accelerator.process_index])
 
     inner_model = K.config.make_model(config)
     if accelerator.is_main_process:
