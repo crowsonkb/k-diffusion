@@ -4,6 +4,7 @@
 
 import argparse
 from copy import deepcopy
+from functools import partial
 import math
 import json
 from pathlib import Path
@@ -15,7 +16,6 @@ from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
 from tqdm.auto import trange, tqdm
-from functools import partial
 
 import k_diffusion as K
 
