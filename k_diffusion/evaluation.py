@@ -69,7 +69,7 @@ def polynomial_kernel(x, y):
     return (dot / d + 1) ** 3
 
 
-def kid(x, y, kernel=polynomial_kernel):
+def squared_mmd(x, y, kernel=polynomial_kernel):
     m = x.shape[-2]
     n = y.shape[-2]
     kxx = kernel(x, x)
@@ -82,6 +82,18 @@ def kid(x, y, kernel=polynomial_kernel):
     term_2 = kyy_sum / n / (n - 1)
     term_3 = kxy_sum * 2 / m / n
     return term_1 + term_2 - term_3
+
+
+def kid(x, y, max_size=5000):
+    x_size, y_size = x.shape[0], y.shape[0]
+    n_partitions = math.ceil(max(x_size / max_size, y_size / max_size))
+    x_part_size, y_part_size = x_size // n_partitions, y_size // n_partitions
+    total_mmd = x.new_zeros([])
+    for i in range(n_partitions):
+        cur_x = x[round(i * x_size / n_partitions):round((i + 1) * x_size / n_partitions)]
+        cur_y = y[round(i * y_size / n_partitions):round((i + 1) * y_size / n_partitions)]
+        total_mmd = total_mmd + squared_mmd(cur_x, cur_y)
+    return total_mmd / n_partitions
 
 
 class _MatrixSquareRootEig(torch.autograd.Function):
