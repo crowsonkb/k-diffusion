@@ -7,8 +7,9 @@ import urllib
 import warnings
 
 import torch
-from torch import optim
+from torch import optim, Tensor
 from torchvision.transforms import functional as TF
+from typing import Union
 
 
 def from_pil_image(x):
@@ -249,3 +250,8 @@ def rand_log_uniform(shape, min_value, max_value, device='cpu', dtype=torch.floa
     min_value = math.log(min_value)
     max_value = math.log(max_value)
     return (torch.rand(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value).exp()
+
+
+def quantize(quanta: Tensor, candidate: Union[int, float, Tensor]) -> Tensor:
+    """Rounds `candidate` to the nearest element in `quanta`"""
+    return quanta[torch.argmin((quanta-candidate).abs(), dim=0)]
