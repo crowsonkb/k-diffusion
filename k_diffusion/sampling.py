@@ -181,6 +181,7 @@ def linear_multistep_coeff(order, t, i, j):
 def sample_lms(model, x, sigmas, extra_args=None, callback=None, disable=None, order=4):
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
+    sigmas_cpu = sigmas.detach().cpu().numpy()
     ds = []
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, **extra_args)
@@ -191,7 +192,7 @@ def sample_lms(model, x, sigmas, extra_args=None, callback=None, disable=None, o
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
         cur_order = min(i + 1, order)
-        coeffs = [linear_multistep_coeff(cur_order, sigmas.cpu(), i, j) for j in range(cur_order)]
+        coeffs = [linear_multistep_coeff(cur_order, sigmas_cpu, i, j) for j in range(cur_order)]
         x = x + sum(coeff * d for coeff, d in zip(coeffs, reversed(ds)))
     return x
 
