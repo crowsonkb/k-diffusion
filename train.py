@@ -134,7 +134,7 @@ def main():
     ])
 
     if dataset_config['type'] == 'imagefolder':
-        train_set = datasets.ImageFolder(dataset_config['location'], transform=tf)
+        train_set = K.utils.FolderOfImages(dataset_config['location'], transform=tf)
     elif dataset_config['type'] == 'cifar10':
         train_set = datasets.CIFAR10(dataset_config['location'], train=True, download=True, transform=tf)
     elif dataset_config['type'] == 'mnist':

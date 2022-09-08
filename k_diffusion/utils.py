@@ -6,8 +6,10 @@ import shutil
 import urllib
 import warnings
 
+from PIL import Image
 import torch
-from torch import optim
+from torch import nn, optim
+from torch.utils import data
 from torchvision.transforms import functional as TF
 
 
@@ -249,3 +251,29 @@ def rand_log_uniform(shape, min_value, max_value, device='cpu', dtype=torch.floa
     min_value = math.log(min_value)
     max_value = math.log(max_value)
     return (torch.rand(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value).exp()
+
+
+class FolderOfImages(data.Dataset):
+    """Recursively finds all images in a directory. It does not support
+    classes/targets."""
+
+    IMG_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm', '.tif', '.tiff', '.webp'}
+
+    def __init__(self, root, transform=None):
+        super().__init__()
+        self.root = Path(root)
+        self.transform = nn.Identity() if transform is None else transform
+        self.paths = [path for path in self.root.rglob('*') if path.suffix.lower() in self.IMG_EXTENSIONS]
+
+    def __repr__(self):
+        return f'FolderOfImages(root="{self.root}", len: {len(self)})'
+
+    def __len__(self):
+        return len(self.paths)
+
+    def __getitem__(self, key):
+        path = self.paths[key]
+        with open(path, 'rb') as f:
+            image = Image.open(f).convert('RGB')
+        image = self.transform(image)
+        return image,
