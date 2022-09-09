@@ -271,7 +271,7 @@ class FolderOfImages(data.Dataset):
         super().__init__()
         self.root = Path(root)
         self.transform = nn.Identity() if transform is None else transform
-        self.paths = [path for path in self.root.rglob('*') if path.suffix.lower() in self.IMG_EXTENSIONS]
+        self.paths = sorted(path for path in self.root.rglob('*') if path.suffix.lower() in self.IMG_EXTENSIONS)
 
     def __repr__(self):
         return f'FolderOfImages(root="{self.root}", len: {len(self)})'
