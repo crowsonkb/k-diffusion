@@ -285,3 +285,59 @@ class FolderOfImages(data.Dataset):
             image = Image.open(f).convert('RGB')
         image = self.transform(image)
         return image,
+
+
+class EMALoss(nn.Module):
+    """Keeps track of the losses per noise level and their standard deviations
+    using an exponential moving average. For making plots similar to Figure 5(a)
+    in Karras et al. (2022)."""
+
+    def __init__(self, sigma_min, sigma_max, bins=100, beta=0.99):
+        super().__init__()
+        self.register_buffer('sigma_min', torch.tensor(sigma_min))
+        self.register_buffer('sigma_max', torch.tensor(sigma_max))
+        self.register_buffer('bins', torch.tensor(bins))
+        self.register_buffer('beta', torch.tensor(beta))
+        bin_edges = torch.linspace(math.log(self.sigma_min), math.log(self.sigma_max), bins + 1).exp()
+        self.register_buffer('bin_edges', bin_edges)
+        self.register_buffer('bin_start', self.bin_edges[:-1])
+        self.register_buffer('bin_end', self.bin_edges[1:])
+        self.register_buffer('bin_mid', (self.bin_start.log() + self.bin_end.log() / 2).exp())
+        self.register_buffer('observations', torch.zeros_like(self.bin_mid, dtype=torch.long))
+        self.register_buffer('_ema_loss', torch.zeros_like(self.bin_mid))
+        self.register_buffer('_ema_loss_sq', torch.zeros_like(self.bin_mid))
+        self.register_buffer('ema_loss', torch.zeros_like(self.bin_mid) * float('nan'))
+        self.register_buffer('ema_loss_sq', torch.zeros_like(self.bin_mid) * float('nan'))
+
+    def get_bin_for_sigma(self, sigma):
+        left = sigma[..., None] - self.bin_start[None, ...]
+        right = sigma[..., None] - self.bin_end[None, ...]
+        bin_mask = torch.logical_xor(left < 0, right < 0)
+        return torch.where(bin_mask.sum(-1) > 0, bin_mask.long().argmax(-1), -1)
+
+    def add_observation(self, sigma, loss):
+        bin = self.get_bin_for_sigma(sigma)
+        if bin < 0:
+            return
+        self.observations[bin] += 1
+        self._ema_loss[bin] *= self.beta
+        self._ema_loss[bin] += (1 - self.beta) * loss
+        self.ema_loss[bin] = self._ema_loss[bin] / (1 - self.beta ** self.observations[bin])
+        self._ema_loss_sq[bin] *= self.beta
+        self._ema_loss_sq[bin] += (1 - self.beta) * loss ** 2
+        self.ema_loss_sq[bin] = self._ema_loss_sq[bin] / (1 - self.beta ** self.observations[bin])
+
+    def add_observations(self, sigmas, losses):
+        for sigma, loss in zip(sigmas, losses):
+            self.add_observation(sigma, loss)
+
+    @property
+    def ema_loss_var(self):
+        return self.ema_loss_sq - self.ema_loss ** 2
+
+    @property
+    def ema_loss_std(self):
+        return self.ema_loss_var ** 0.5
+
+    def forward(self, sigmas, losses):
+        return self.add_observations(sigmas, losses)
