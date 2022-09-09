@@ -103,12 +103,20 @@ def main():
         log_config['parameters'] = K.utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
-    assert opt_config['type'] == 'adamw'
-    opt = optim.AdamW(inner_model.parameters(),
-                      lr=opt_config['lr'] if args.lr is None else args.lr,
-                      betas=tuple(opt_config['betas']),
-                      eps=opt_config['eps'],
-                      weight_decay=opt_config['weight_decay'])
+    if opt_config['type'] == 'adamw':
+        opt = optim.AdamW(inner_model.parameters(),
+                          lr=opt_config['lr'] if args.lr is None else args.lr,
+                          betas=tuple(opt_config['betas']),
+                          eps=opt_config['eps'],
+                          weight_decay=opt_config['weight_decay'])
+    elif opt_config['type'] == 'sgd':
+        opt = optim.SGD(inner_model.parameters(),
+                        lr=opt_config['lr'] if args.lr is None else args.lr,
+                        momentum=opt_config.get('momentum', 0.),
+                        nesterov=opt_config.get('nesterov', False),
+                        weight_decay=opt_config.get('weight_decay', 0.))
+    else:
+        raise ValueError('Invalid optimizer type')
 
     if sched_config['type'] == 'inverse':
         sched = K.utils.InverseLR(opt,
