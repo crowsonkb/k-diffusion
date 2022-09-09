@@ -253,6 +253,14 @@ def rand_log_uniform(shape, min_value, max_value, device='cpu', dtype=torch.floa
     return (torch.rand(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value).exp()
 
 
+def rand_v_diffusion(shape, sigma_data=1., min_value=0., max_value=float('inf'), device='cpu', dtype=torch.float32):
+    """Draws samples from a truncated v-diffusion training timestep distribution."""
+    min_cdf = math.atan(min_value / sigma_data) * 2 / math.pi
+    max_cdf = math.atan(max_value / sigma_data) * 2 / math.pi
+    u = torch.rand(shape, device=device, dtype=dtype) * (max_cdf - min_cdf) + min_cdf
+    return torch.tan(u * math.pi / 2) * sigma_data
+
+
 class FolderOfImages(data.Dataset):
     """Recursively finds all images in a directory. It does not support
     classes/targets."""

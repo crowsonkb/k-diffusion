@@ -67,19 +67,24 @@ def make_model(config):
 
 
 def make_sample_density(config):
-    config = config['sigma_sample_density']
-    if config['type'] == 'lognormal':
-        loc = config['mean'] if 'mean' in config else config['loc']
-        scale = config['std'] if 'std' in config else config['scale']
+    sd_config = config['sigma_sample_density']
+    if sd_config['type'] == 'lognormal':
+        loc = sd_config['mean'] if 'mean' in sd_config else sd_config['loc']
+        scale = sd_config['std'] if 'std' in sd_config else sd_config['scale']
         return partial(utils.rand_log_normal, loc=loc, scale=scale)
-    if config['type'] == 'loglogistic':
-        loc = config['loc']
-        scale = config['scale']
-        min_value = config['min_value'] if 'min_value' in config else 0.
-        max_value = config['max_value'] if 'max_value' in config else float('inf')
+    if sd_config['type'] == 'loglogistic':
+        loc = sd_config['loc']
+        scale = sd_config['scale']
+        min_value = sd_config['min_value'] if 'min_value' in sd_config else 0.
+        max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
         return partial(utils.rand_log_logistic, loc=loc, scale=scale, min_value=min_value, max_value=max_value)
-    if config['type'] == 'loguniform':
-        min_value = config['min_value']
-        max_value = config['max_value']
+    if sd_config['type'] == 'loguniform':
+        min_value = sd_config['min_value']
+        max_value = sd_config['max_value']
         return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
+    if sd_config['type'] == 'v-diffusion':
+        sigma_data = config['sigma_data']
+        min_value = sd_config['min_value'] if 'min_value' in sd_config else 0.
+        max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
+        return partial(utils.rand_v_diffusion, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
     raise ValueError('Unknown sample density type')
