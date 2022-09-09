@@ -112,9 +112,9 @@ def main():
 
     if sched_config['type'] == 'inverse':
         sched = K.utils.InverseLR(opt,
-                                inv_gamma=sched_config['inv_gamma'],
-                                power=sched_config['power'],
-                                warmup=sched_config['warmup'])
+                                  inv_gamma=sched_config['inv_gamma'],
+                                  power=sched_config['power'],
+                                  warmup=sched_config['warmup'])
     elif sched_config['type'] == 'exponential':
         sched = K.utils.ExponentialLR(opt,
                                       num_steps=sched_config['num_steps'],
