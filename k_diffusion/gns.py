@@ -29,7 +29,9 @@ class DDPGradientStatsHook:
         sq_norm_small_batch = sum(self.bucket_sq_norms_small_batch)
         sq_norm_large_batch = sum(self.bucket_sq_norms_large_batch)
         self._clear_state()
-        return torch.stack([sq_norm_small_batch, sq_norm_large_batch])
+        stats = torch.stack([sq_norm_small_batch, sq_norm_large_batch])
+        torch.distributed.all_reduce(stats, op=torch.distributed.ReduceOp.AVG)
+        return stats[0].item(), stats[1].item()
 
 
 class GradientNoiseScale:
