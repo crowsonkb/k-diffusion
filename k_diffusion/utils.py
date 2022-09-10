@@ -387,7 +387,7 @@ class CSVLogger:
             self.file = open(self.filename, 'a')
         else:
             self.file = open(self.filename, 'w')
-            self.write(self.columns)
+            self.write(*self.columns)
 
     def write(self, *args):
         print(*args, sep=',', file=self.file, flush=True)
