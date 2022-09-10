@@ -11,7 +11,7 @@ from pathlib import Path
 
 import accelerate
 import torch
-from torch import optim
+from torch import nn, optim
 from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
@@ -182,6 +182,9 @@ def main():
         gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
+    sigma_min = model_config['sigma_min']
+    sigma_max = model_config['sigma_max']
+    sample_density = K.config.make_sample_density(model_config)
 
     model = K.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
     model_ema = deepcopy(model)
@@ -204,8 +207,11 @@ def main():
         ema_sched.load_state_dict(ckpt['ema_sched'])
         epoch = ckpt['epoch'] + 1
         step = ckpt['step'] + 1
-        if args.gns and 'gns_stats' in ckpt and ckpt['gns_stats'] is not None:
+        if args.gns and ckpt.get('gns_stats', None) is not None:
             gns_stats.load_state_dict(ckpt['gns_stats'])
+        if ckpt.get('sample_density', None) is not None and isinstance(sample_density, nn.Module):
+            sample_density.load_state_dict(ckpt['sample_density'])
+
         del ckpt
     else:
         epoch = 0
@@ -224,10 +230,6 @@ def main():
             metrics_log_file = open(metrics_log_filepath, 'w')
             print('step', 'fid', 'kid', sep=',', file=metrics_log_file, flush=True)
     del train_iter
-
-    sigma_min = model_config['sigma_min']
-    sigma_max = model_config['sigma_max']
-    sample_density = K.config.make_sample_density(model_config)
 
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
@@ -280,6 +282,7 @@ def main():
             'epoch': epoch,
             'step': step,
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
+            'sample_density': sample_density.state_dict() if isinstance(sample_density, nn.Module) else None,
         }
         accelerator.save(obj, filename)
         if accelerator.is_main_process:
@@ -296,10 +299,11 @@ def main():
                     noise = torch.randn_like(reals)
                     sigma = sample_density([reals.shape[0]], device=device)
                     losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
-                    losses_all = accelerator.gather(losses.detach())
-                    loss_local = losses.mean()
+                    losses_all = accelerator.gather(losses)
                     loss = losses_all.mean()
-                    accelerator.backward(loss_local)
+                    if hasattr(sample_density, 'add_losses'):
+                        sample_density.add_losses(losses_all, accelerator.gather(sigma))
+                    accelerator.backward(losses.mean())
                     if args.gns:
                         sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
                         gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)

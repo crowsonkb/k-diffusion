@@ -79,12 +79,19 @@ def make_sample_density(config):
         max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
         return partial(utils.rand_log_logistic, loc=loc, scale=scale, min_value=min_value, max_value=max_value)
     if sd_config['type'] == 'loguniform':
-        min_value = sd_config['min_value']
-        max_value = sd_config['max_value']
+        min_value = sd_config['min_value'] if 'min_value' in sd_config else config['sigma_min']
+        max_value = sd_config['max_value'] if 'max_value' in sd_config else config['sigma_max']
         return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
     if sd_config['type'] == 'v-diffusion':
         sigma_data = config['sigma_data']
         min_value = sd_config['min_value'] if 'min_value' in sd_config else 0.
         max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
         return partial(utils.rand_v_diffusion, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
+    if sd_config['type'] == 'equalized':
+        min_value = sd_config['min_value'] if 'min_value' in sd_config else config['sigma_min']
+        max_value = sd_config['max_value'] if 'max_value' in sd_config else config['sigma_max']
+        bins = sd_config.get('bins', 100)
+        beta = sd_config.get('beta', 0.995)
+        eps = sd_config.get('eps', 1e-4)
+        return utils.EqualizedSampleDensity(min_value, max_value, bins, beta, eps)
     raise ValueError('Unknown sample density type')
