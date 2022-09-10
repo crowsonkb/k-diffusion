@@ -156,6 +156,12 @@ def main():
     else:
         raise ValueError('Invalid dataset type')
 
+    if accelerator.is_main_process:
+        try:
+            print('Number of items in dataset:', len(train_set))
+        except TypeError:
+            pass
+
     image_key = dataset_config.get('image_key', 0)
 
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
