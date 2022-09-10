@@ -82,7 +82,7 @@ def main():
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
 
-    ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=True)
+    ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=model_config['skip_stages'] > 0)
     accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps)
     device = accelerator.device
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
