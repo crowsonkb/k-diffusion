@@ -1,9 +1,10 @@
 from functools import partial
 import json
+import warnings
 
 from jsonmerge import merge
 
-from . import augmentation, models, utils
+from . import augmentation, layers, models, utils
 
 
 def load_config(file):
@@ -18,6 +19,7 @@ def load_config(file):
             'cross_cond_dim': 0,
             'cross_attn_depths': None,
             'skip_stages': 0,
+            'has_variance': False,
         },
         'dataset': {
             'type': 'imagefolder',
@@ -61,9 +63,19 @@ def make_model(config):
         unet_cond_dim=config['unet_cond_dim'],
         cross_cond_dim=config['cross_cond_dim'],
         skip_stages=config['skip_stages'],
+        has_variance=config['has_variance'],
     )
     model = augmentation.KarrasAugmentWrapper(model)
     return model
+
+
+def make_denoiser_wrapper(config):
+    config = config['model']
+    sigma_data = config.get('sigma_data', 1.)
+    has_variance = config.get('has_variance', False)
+    if not has_variance:
+        return partial(layers.Denoiser, sigma_data=sigma_data)
+    return partial(layers.DenoiserWithScalarVariance, sigma_data=sigma_data)
 
 
 def make_sample_density(config):
@@ -88,6 +100,10 @@ def make_sample_density(config):
         max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
         return partial(utils.rand_v_diffusion, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
     if sd_config['type'] == 'equalized':
+        if config['has_variance']:
+            warnings.warn('The "equalized" sample density is not compatible with a '
+                          'model with has_variance=True, because its loss function has a different meaning. '
+                          'The recommended sample density is loguniform.')
         min_value = sd_config['min_value'] if 'min_value' in sd_config else config['sigma_min']
         max_value = sd_config['max_value'] if 'max_value' in sd_config else config['sigma_max']
         bins = sd_config.get('bins', 100)

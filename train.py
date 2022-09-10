@@ -47,7 +47,7 @@ def main():
                    help='the name of the run')
     p.add_argument('--num-workers', type=int, default=8,
                    help='the number of data loader workers')
-    p.add_argument('--resume', type=str, 
+    p.add_argument('--resume', type=str,
                    help='the checkpoint to resume from')
     p.add_argument('--sample-n', type=int, default=64,
                    help='the number of images to sample for demo grids')
@@ -69,6 +69,7 @@ def main():
     args = p.parse_args()
 
     mp.set_start_method(args.start_method)
+    torch.backends.cuda.matmul.allow_tf32 = True
 
     config = K.config.load_config(open(args.config))
     model_config = config['model']
@@ -186,7 +187,7 @@ def main():
     sigma_max = model_config['sigma_max']
     sample_density = K.config.make_sample_density(model_config)
 
-    model = K.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
+    model = K.config.make_denoiser_wrapper(config)(inner_model)
     model_ema = deepcopy(model)
 
     state_path = Path(f'{args.name}_state.json')
@@ -223,12 +224,7 @@ def main():
         print('Computing features for reals...')
     reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
     if accelerator.is_main_process:
-        metrics_log_filepath = Path(f'{args.name}_metrics.csv')
-        if metrics_log_filepath.exists():
-            metrics_log_file = open(metrics_log_filepath, 'a')
-        else:
-            metrics_log_file = open(metrics_log_filepath, 'w')
-            print('step', 'fid', 'kid', sep=',', file=metrics_log_file, flush=True)
+        metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'fid', 'kid'])
     del train_iter
 
     @torch.no_grad()
@@ -264,7 +260,7 @@ def main():
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             if accelerator.is_main_process:
-                print(step, fid.item(), kid.item(), sep=',', file=metrics_log_file, flush=True)
+                metrics_log.write(step, fid.item(), kid.item())
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 

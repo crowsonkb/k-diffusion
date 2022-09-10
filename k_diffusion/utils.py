@@ -377,3 +377,17 @@ class EqualizedSampleDensity(EMALoss):
         offsets = torch.rand(bins.shape, device=self.device)
         log_sigma = offsets * (self.bin_end[bins].log() - self.bin_start[bins].log()) + self.bin_start[bins].log()
         return log_sigma.exp().to(device)
+
+
+class CSVLogger:
+    def __init__(self, filename, columns):
+        self.filename = Path(filename)
+        self.columns = columns
+        if self.filename.exists():
+            self.file = open(self.filename, 'a')
+        else:
+            self.file = open(self.filename, 'w')
+            self.write(self.columns)
+
+    def write(self, *args):
+        print(*args, sep=',', file=self.file, flush=True)

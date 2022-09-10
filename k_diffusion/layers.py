@@ -35,6 +35,16 @@ class Denoiser(nn.Module):
         return self.inner_model(input * c_in, sigma, **kwargs) * c_out + input * c_skip
 
 
+class DenoiserWithScalarVariance(Denoiser):
+    def loss(self, input, noise, sigma, **kwargs):
+        c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+        noised_input = input + noise * utils.append_dims(sigma, input.ndim)
+        model_output, logvar = self.inner_model(noised_input * c_in, sigma, return_variance=True, **kwargs)
+        target = (input - c_skip * noised_input) / c_out
+        mse = (model_output - target).pow(2).flatten(1).mean(1)
+        return mse / logvar.exp() + logvar
+
+
 # Residual blocks
 
 class ResidualBlock(nn.Module):
@@ -56,7 +66,7 @@ class ConditionedModule(nn.Module):
 class UnconditionedModule(ConditionedModule):
     def __init__(self, module):
         self.module = module
-    
+
     def forward(self, input, cond):
         return self.module(input)
 

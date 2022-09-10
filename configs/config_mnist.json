@@ -8,6 +8,7 @@
         "depths": [2, 4, 4],
         "channels": [128, 128, 256],
         "self_attn_depths": [false, false, true],
+        "has_variance": true,
         "dropout_rate": 0.05,
         "augment_prob": 0.12,
         "sigma_data": 0.6162,
