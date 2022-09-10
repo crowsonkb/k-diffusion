@@ -35,14 +35,15 @@ class Denoiser(nn.Module):
         return self.inner_model(input * c_in, sigma, **kwargs) * c_out + input * c_skip
 
 
-class DenoiserWithScalarVariance(Denoiser):
+class DenoiserWithVariance(Denoiser):
     def loss(self, input, noise, sigma, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output, logvar = self.inner_model(noised_input * c_in, sigma, return_variance=True, **kwargs)
+        logvar = utils.append_dims(logvar, model_output.ndim)
         target = (input - c_skip * noised_input) / c_out
-        mse = (model_output - target).pow(2).flatten(1).mean(1)
-        return mse / logvar.exp() + logvar
+        losses = ((model_output - target) ** 2 / logvar.exp() + logvar) / 2
+        return losses.flatten(1).mean(1)
 
 
 # Residual blocks

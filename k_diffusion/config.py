@@ -75,7 +75,7 @@ def make_denoiser_wrapper(config):
     has_variance = config.get('has_variance', False)
     if not has_variance:
         return partial(layers.Denoiser, sigma_data=sigma_data)
-    return partial(layers.DenoiserWithScalarVariance, sigma_data=sigma_data)
+    return partial(layers.DenoiserWithVariance, sigma_data=sigma_data)
 
 
 def make_sample_density(config):
@@ -102,8 +102,7 @@ def make_sample_density(config):
     if sd_config['type'] == 'equalized':
         if config['has_variance']:
             warnings.warn('The "equalized" sample density is not compatible with a '
-                          'model with has_variance=True, because its loss function has a different meaning. '
-                          'The recommended sample density is loguniform.')
+                          'model with has_variance=True, because its loss function has a different meaning.')
         min_value = sd_config['min_value'] if 'min_value' in sd_config else config['sigma_min']
         max_value = sd_config['max_value'] if 'max_value' in sd_config else config['sigma_max']
         bins = sd_config.get('bins', 100)
