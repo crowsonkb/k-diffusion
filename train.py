@@ -224,14 +224,16 @@ def main():
         epoch = 0
         step = 0
 
-    extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
-    train_iter = iter(train_dl)
-    if accelerator.is_main_process:
-        print('Computing features for reals...')
-    reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
-    if accelerator.is_main_process:
-        metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'fid', 'kid'])
-    del train_iter
+    evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
+    if evaluate_enabled:
+        extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
+        train_iter = iter(train_dl)
+        if accelerator.is_main_process:
+            print('Computing features for reals...')
+        reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
+        if accelerator.is_main_process:
+            metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'fid', 'kid'])
+        del train_iter
 
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
@@ -253,6 +255,8 @@ def main():
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
     def evaluate():
+        if not evaluate_enabled:
+            return
         if accelerator.is_main_process:
             tqdm.write('Evaluating...')
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
@@ -338,7 +342,7 @@ def main():
                 if step % args.demo_every == 0:
                     demo()
 
-                if step > 0 and args.evaluate_every > 0 and step % args.evaluate_every == 0:
+                if evaluate_enabled and step > 0 and step % args.evaluate_every == 0:
                     evaluate()
 
                 if step > 0 and step % args.save_every == 0:
