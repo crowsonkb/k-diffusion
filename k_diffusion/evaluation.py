@@ -84,10 +84,10 @@ def squared_mmd(x, y, kernel=polynomial_kernel):
     return term_1 + term_2 - term_3
 
 
+@utils.tf32_mode(matmul=False)
 def kid(x, y, max_size=5000):
     x_size, y_size = x.shape[0], y.shape[0]
     n_partitions = math.ceil(max(x_size / max_size, y_size / max_size))
-    x_part_size, y_part_size = x_size // n_partitions, y_size // n_partitions
     total_mmd = x.new_zeros([])
     for i in range(n_partitions):
         cur_x = x[round(i * x_size / n_partitions):round((i + 1) * x_size / n_partitions)]
@@ -119,6 +119,7 @@ def sqrtm_eig(a):
     return _MatrixSquareRootEig.apply(a)
 
 
+@utils.tf32_mode(matmul=False)
 def fid(x, y, eps=1e-8):
     x_mean = x.mean(dim=0)
     y_mean = y.mean(dim=0)
