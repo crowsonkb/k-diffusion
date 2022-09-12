@@ -7,9 +7,14 @@ from torch.nn import functional as F
 from .. import layers, utils
 
 
+def orthogonal_(module):
+    nn.init.orthogonal_(module.weight)
+    return module
+
+
 class ResConvBlock(layers.ConditionedResidualBlock):
     def __init__(self, feats_in, c_in, c_mid, c_out, group_size=32, dropout_rate=0.):
-        skip = None if c_in == c_out else nn.Conv2d(c_in, c_out, 1, bias=False)
+        skip = None if c_in == c_out else orthogonal_(nn.Conv2d(c_in, c_out, 1, bias=False))
         super().__init__(
             layers.AdaGN(feats_in, c_in, max(1, c_in // group_size)),
             nn.GELU(),
@@ -74,12 +79,9 @@ class MappingNet(nn.Sequential):
     def __init__(self, feats_in, feats_out, n_layers=2):
         layers = []
         for i in range(n_layers):
-            layers.append(nn.Linear(feats_in if i == 0 else feats_out, feats_out))
+            layers.append(orthogonal_(nn.Linear(feats_in if i == 0 else feats_out, feats_out)))
             layers.append(nn.GELU())
         super().__init__(*layers)
-        for layer in self:
-            if isinstance(layer, nn.Linear):
-                nn.init.orthogonal_(layer.weight)
 
 
 class ImageDenoiserModelV1(nn.Module):
