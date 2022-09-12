@@ -216,8 +216,6 @@ def main():
         step = ckpt['step'] + 1
         if args.gns and ckpt.get('gns_stats', None) is not None:
             gns_stats.load_state_dict(ckpt['gns_stats'])
-        if ckpt.get('sample_density', None) is not None and isinstance(sample_density, nn.Module):
-            sample_density.load_state_dict(ckpt['sample_density'])
 
         del ckpt
     else:
@@ -288,7 +286,6 @@ def main():
             'epoch': epoch,
             'step': step,
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
-            'sample_density': sample_density.state_dict() if isinstance(sample_density, nn.Module) else None,
         }
         accelerator.save(obj, filename)
         if accelerator.is_main_process:
@@ -307,8 +304,6 @@ def main():
                     losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
                     losses_all = accelerator.gather(losses)
                     loss = losses_all.mean()
-                    if hasattr(sample_density, 'add_losses'):
-                        sample_density.add_losses(losses_all, accelerator.gather(sigma))
                     accelerator.backward(losses.mean())
                     if args.gns:
                         sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
