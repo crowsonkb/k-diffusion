@@ -12,4 +12,4 @@ torchdiffeq
 torchvision
 tqdm
 wandb
-git+https://github.com/openai/CLIP
+git+https://github.com/openai/CLIP#egg=clip
