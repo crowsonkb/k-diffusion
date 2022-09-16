@@ -99,4 +99,9 @@ def make_sample_density(config):
         min_value = sd_config['min_value'] if 'min_value' in sd_config else 0.
         max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
         return partial(utils.rand_v_diffusion, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
+    if sd_config['type'] == 'split-lognormal':
+        loc = sd_config['mean'] if 'mean' in sd_config else sd_config['loc']
+        scale_1 = sd_config['std_1'] if 'std_1' in sd_config else sd_config['scale_1']
+        scale_2 = sd_config['std_2'] if 'std_2' in sd_config else sd_config['scale_2']
+        return partial(utils.rand_split_log_normal, loc=loc, scale_1=scale_1, scale_2=scale_2)
     raise ValueError('Unknown sample density type')

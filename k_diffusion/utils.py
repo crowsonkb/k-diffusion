@@ -261,6 +261,16 @@ def rand_v_diffusion(shape, sigma_data=1., min_value=0., max_value=float('inf'),
     return torch.tan(u * math.pi / 2) * sigma_data
 
 
+def rand_split_log_normal(shape, loc, scale_1, scale_2, device='cpu', dtype=torch.float32):
+    """Draws samples from a split lognormal distribution."""
+    n = torch.randn(shape, device=device, dtype=dtype).abs()
+    u = torch.rand(shape, device=device, dtype=dtype)
+    n_left = n * -scale_1 + loc
+    n_right = n * scale_2 + loc
+    ratio = scale_1 / (scale_1 + scale_2)
+    return torch.where(u < ratio, n_left, n_right).exp()
+
+
 class FolderOfImages(data.Dataset):
     """Recursively finds all images in a directory. It does not support
     classes/targets."""
