@@ -13,6 +13,7 @@ def load_config(file):
             'sigma_data': 1.,
             'patch_size': 1,
             'dropout_rate': 0.,
+            'augment_wrapper': True,
             'augment_prob': 0.,
             'mapping_cond_dim': 0,
             'unet_cond_dim': 0,
@@ -59,13 +60,14 @@ def make_model(config):
         config['cross_attn_depths'],
         patch_size=config['patch_size'],
         dropout_rate=config['dropout_rate'],
-        mapping_cond_dim=config['mapping_cond_dim'] + 9,
+        mapping_cond_dim=config['mapping_cond_dim'] + (9 if config['augment_wrapper'] else 0),
         unet_cond_dim=config['unet_cond_dim'],
         cross_cond_dim=config['cross_cond_dim'],
         skip_stages=config['skip_stages'],
         has_variance=config['has_variance'],
     )
-    model = augmentation.KarrasAugmentWrapper(model)
+    if config['augment_wrapper']:
+        model = augmentation.KarrasAugmentWrapper(model)
     return model
 
 

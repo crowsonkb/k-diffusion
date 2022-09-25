@@ -10,6 +10,7 @@
         "self_attn_depths": [false, false, true],
         "has_variance": true,
         "dropout_rate": 0.05,
+        "augment_wrapper": true,
         "augment_prob": 0.12,
         "sigma_data": 0.6162,
         "sigma_min": 1e-2,
