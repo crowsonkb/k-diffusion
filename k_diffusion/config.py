@@ -1,5 +1,6 @@
 from functools import partial
 import json
+import math
 import warnings
 
 from jsonmerge import merge
@@ -82,13 +83,14 @@ def make_denoiser_wrapper(config):
 
 def make_sample_density(config):
     sd_config = config['sigma_sample_density']
+    sigma_data = config['sigma_data']
     if sd_config['type'] == 'lognormal':
         loc = sd_config['mean'] if 'mean' in sd_config else sd_config['loc']
         scale = sd_config['std'] if 'std' in sd_config else sd_config['scale']
         return partial(utils.rand_log_normal, loc=loc, scale=scale)
     if sd_config['type'] == 'loglogistic':
-        loc = sd_config['loc']
-        scale = sd_config['scale']
+        loc = sd_config['loc'] if 'loc' in sd_config else math.log(sigma_data)
+        scale = sd_config['scale'] if 'scale' in sd_config else 0.5
         min_value = sd_config['min_value'] if 'min_value' in sd_config else 0.
         max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
         return partial(utils.rand_log_logistic, loc=loc, scale=scale, min_value=min_value, max_value=max_value)
@@ -97,7 +99,6 @@ def make_sample_density(config):
         max_value = sd_config['max_value'] if 'max_value' in sd_config else config['sigma_max']
         return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
     if sd_config['type'] == 'v-diffusion':
-        sigma_data = config['sigma_data']
         min_value = sd_config['min_value'] if 'min_value' in sd_config else 0.
         max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
         return partial(utils.rand_v_diffusion, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
