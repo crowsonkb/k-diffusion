@@ -130,14 +130,19 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
         d = to_d(x, sigma_hat, denoised)
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigma_hat, 'denoised': denoised})
-        # Midpoint method, where the midpoint is chosen according to a rho=3 Karras schedule
-        sigma_mid = ((sigma_hat ** (1 / 3) + sigmas[i + 1] ** (1 / 3)) / 2) ** 3
-        dt_1 = sigma_mid - sigma_hat
-        dt_2 = sigmas[i + 1] - sigma_hat
-        x_2 = x + d * dt_1
-        denoised_2 = model(x_2, sigma_mid * s_in, **extra_args)
-        d_2 = to_d(x_2, sigma_mid, denoised_2)
-        x = x + d_2 * dt_2
+        if sigmas[i + 1] == 0:
+            # Euler method
+            dt = sigmas[i + 1] - sigma_hat
+            x = x + d * dt
+        else:
+            # DPM-Solver-2
+            sigma_mid = sigma_hat.log().lerp(sigmas[i + 1].log(), 0.5).exp()
+            dt_1 = sigma_mid - sigma_hat
+            dt_2 = sigmas[i + 1] - sigma_hat
+            x_2 = x + d * dt_1
+            denoised_2 = model(x_2, sigma_mid * s_in, **extra_args)
+            d_2 = to_d(x_2, sigma_mid, denoised_2)
+            x = x + d_2 * dt_2
     return x
 
 
@@ -152,15 +157,20 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
         if callback is not None:
             callback({'x': x, 'i': i, 'sigma': sigmas[i], 'sigma_hat': sigmas[i], 'denoised': denoised})
         d = to_d(x, sigmas[i], denoised)
-        # Midpoint method, where the midpoint is chosen according to a rho=3 Karras schedule
-        sigma_mid = ((sigmas[i] ** (1 / 3) + sigma_down ** (1 / 3)) / 2) ** 3
-        dt_1 = sigma_mid - sigmas[i]
-        dt_2 = sigma_down - sigmas[i]
-        x_2 = x + d * dt_1
-        denoised_2 = model(x_2, sigma_mid * s_in, **extra_args)
-        d_2 = to_d(x_2, sigma_mid, denoised_2)
-        x = x + d_2 * dt_2
-        x = x + torch.randn_like(x) * sigma_up
+        if sigma_down == 0:
+            # Euler method
+            dt = sigma_down - sigmas[i]
+            x = x + d * dt
+        else:
+            # DPM-Solver-2
+            sigma_mid = sigmas[i].log().lerp(sigma_down.log(), 0.5).exp()
+            dt_1 = sigma_mid - sigmas[i]
+            dt_2 = sigma_down - sigmas[i]
+            x_2 = x + d * dt_1
+            denoised_2 = model(x_2, sigma_mid * s_in, **extra_args)
+            d_2 = to_d(x_2, sigma_mid, denoised_2)
+            x = x + d_2 * dt_2
+            x = x + torch.randn_like(x) * sigma_up
     return x
 
 
