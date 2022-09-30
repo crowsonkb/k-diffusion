@@ -352,11 +352,7 @@ class DPMSolver(nn.Module):
         if order not in {2, 3}:
             raise ValueError('order should be 2 or 3')
         forward = t_end > t_start
-        if forward and h_init <= 0:
-            raise ValueError('For forward ODE integration, h_init must be positive')
-        if not forward and h_init >= 0:
-            raise ValueError('For reverse ODE integration, h_init must be negative')
-
+        h_init = abs(h_init) * (1 if forward else -1)
         atol = torch.tensor(atol)
         rtol = torch.tensor(rtol)
         s = t_start
