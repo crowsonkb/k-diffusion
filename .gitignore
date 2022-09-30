@@ -7,3 +7,4 @@ data
 *_demo_*.png
 wandb/*
 *.csv
+.env
