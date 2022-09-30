@@ -1,5 +1,6 @@
 accelerate
 clean-fid
+clip-anytorch
 einops
 jsonmerge
 kornia
@@ -12,4 +13,3 @@ torchdiffeq
 torchvision
 tqdm
 wandb
-git+https://github.com/openai/CLIP
