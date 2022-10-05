@@ -78,9 +78,8 @@ def main():
     sched_config = config['lr_sched']
     ema_sched_config = config['ema_sched']
 
-    # TODO: allow non-square input sizes
-    assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
-    size = model_config['input_size']
+    # format for size is [height, width] or [width_and_height]
+    size = model_config['input_size'] if len(model_config['input_size']) == 2 else [model_config['input_size'], model_config['input_size']]
 
     ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=model_config['skip_stages'] > 0)
     accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps)
@@ -137,8 +136,8 @@ def main():
                                   max_value=ema_sched_config['max_value'])
 
     tf = transforms.Compose([
-        transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
-        transforms.CenterCrop(size[0]),
+        transforms.Resize(size, interpolation=transforms.InterpolationMode.LANCZOS),
+        transforms.CenterCrop(size),
         K.augmentation.KarrasAugmentationPipeline(model_config['augment_prob']),
     ])
 
