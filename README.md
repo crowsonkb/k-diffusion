@@ -44,6 +44,8 @@ on all nodes.
 
 - k-diffusion models support progressive growing.
 
+- [DEIS](https://arxiv.org/abs/2204.13902), where DPM-Solver are equivelent to $\rho$-RK in DEIS with second order mid point solver and third order Kutta method. And [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method#Adams–Bashforth_methods) with warming start, which is exactly $\rho$-AB in DEIS.
+
 - k-diffusion implements [DPM-Solver](https://arxiv.org/abs/2206.00927), which produces higher quality samples at the same number of function evalutions as Karras Algorithm 2, as well as supporting adaptive step size control. It also implements a [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method#Adams–Bashforth_methods) sampler (comparable to [PLMS](https://arxiv.org/abs/2202.09778)).
 
 - k-diffusion supports [CLIP](https://openai.com/blog/clip/) guided sampling from unconditional diffusion models (see `sample_clip_guided.py`).
