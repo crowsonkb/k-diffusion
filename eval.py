@@ -2,16 +2,12 @@
 """Evaluate models."""
 
 import math, accelerate, torch
-from copy import deepcopy
 from functools import partial
-from pathlib import Path
 from fastcore.script import call_parse
 
-from torch import nn, optim
-from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
-from tqdm.auto import trange, tqdm
+from tqdm.auto import tqdm
 
 import k_diffusion as K
 
@@ -28,9 +24,6 @@ def main(
     checkpoint:str='model_00050000.pth', # the path of the checkpoint
     sample_n:int=64, # the number of images to sample for demo grids
 ):
-    path = Path('outputs')
-    path.mkdir(exist_ok=True)
-
     config = K.config.load_config(open(config))
     model_cfg = config['model']
     dataset_cfg = config['dataset']
@@ -79,9 +72,8 @@ def main(
     model = K.config.make_denoiser_wrapper(config)(inner_model)
 
     # Load checkpoint
-    ckpt_path = checkpoint
-    print(f'Loading ema from {ckpt_path}...')
-    ckpt = torch.load(ckpt_path, map_location='cpu')
+    print(f'Loading ema from {checkpoint}...')
+    ckpt = torch.load(checkpoint, map_location='cpu')
     accelerator.unwrap_model(model.inner_model).load_state_dict(ckpt['model_ema'])
 
     extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
@@ -113,7 +105,6 @@ def main(
         fid = K.evaluation.fid(fakes_features, reals_features)
         kid = K.evaluation.kid(fakes_features, reals_features)
         print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-        # metrics_log.write(step, fid.item(), kid.item())
 
     demo()
     evaluate()
