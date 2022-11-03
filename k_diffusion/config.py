@@ -3,13 +3,62 @@ import json
 import math
 import warnings
 
+from typing import Any, BinaryIO, List, Optional, TextIO, TypedDict, Union
+
 from jsonmerge import merge
 
 from . import augmentation, layers, models, utils
 
 
-def load_config(file):
-    defaults = {
+class ModelConfig(TypedDict):
+    sigma_data: float
+    patch_size: int
+    dropout_rate: float
+    augment_wrapper: bool
+    augment_prob: float
+    mapping_cond_dim: int
+    unet_cond_dim: int
+    cross_cond_dim: int
+    cross_attn_depths: Optional[Any]
+    skip_stages: int
+    has_variance: bool
+
+
+class DatasetConfig(TypedDict):
+    type: str
+
+
+class OptimizerConfig(TypedDict):
+    type: str
+    lr: float
+    betas: List[float]
+    eps: float
+    weight_decay: float
+
+
+class LRSchedConfig(TypedDict):
+    type: str
+    inv_gamma: float
+    power: float
+    warmup: float
+
+
+class EMASchedConfig(TypedDict):
+    type: str
+    power: float
+    max_value: float
+
+
+class Config(TypedDict):
+    model: ModelConfig
+    dataset: DatasetConfig
+    optimizer: OptimizerConfig
+    lr_sched: LRSchedConfig
+    ema_sched: EMASchedConfig
+
+
+def load_config(file: Union[BinaryIO, TextIO]) -> Config:
+    defaults: Config = {
         'model': {
             'sigma_data': 1.,
             'patch_size': 1,
@@ -49,39 +98,39 @@ def load_config(file):
     return merge(defaults, config)
 
 
-def make_model(config):
-    config = config['model']
-    assert config['type'] == 'image_v1'
+def make_model(config: Config):
+    model_config = config['model']
+    assert model_config['type'] == 'image_v1'
     model = models.ImageDenoiserModelV1(
-        config['input_channels'],
-        config['mapping_out'],
-        config['depths'],
-        config['channels'],
-        config['self_attn_depths'],
-        config['cross_attn_depths'],
-        patch_size=config['patch_size'],
-        dropout_rate=config['dropout_rate'],
-        mapping_cond_dim=config['mapping_cond_dim'] + (9 if config['augment_wrapper'] else 0),
-        unet_cond_dim=config['unet_cond_dim'],
-        cross_cond_dim=config['cross_cond_dim'],
-        skip_stages=config['skip_stages'],
-        has_variance=config['has_variance'],
+        model_config['input_channels'],
+        model_config['mapping_out'],
+        model_config['depths'],
+        model_config['channels'],
+        model_config['self_attn_depths'],
+        model_config['cross_attn_depths'],
+        patch_size=model_config['patch_size'],
+        dropout_rate=model_config['dropout_rate'],
+        mapping_cond_dim=model_config['mapping_cond_dim'] + (9 if model_config['augment_wrapper'] else 0),
+        unet_cond_dim=model_config['unet_cond_dim'],
+        cross_cond_dim=model_config['cross_cond_dim'],
+        skip_stages=model_config['skip_stages'],
+        has_variance=model_config['has_variance'],
     )
-    if config['augment_wrapper']:
+    if model_config['augment_wrapper']:
         model = augmentation.KarrasAugmentWrapper(model)
     return model
 
 
-def make_denoiser_wrapper(config):
-    config = config['model']
-    sigma_data = config.get('sigma_data', 1.)
-    has_variance = config.get('has_variance', False)
+def make_denoiser_wrapper(config: Config):
+    model_config = config['model']
+    sigma_data = model_config.get('sigma_data', 1.)
+    has_variance = model_config.get('has_variance', False)
     if not has_variance:
         return partial(layers.Denoiser, sigma_data=sigma_data)
     return partial(layers.DenoiserWithVariance, sigma_data=sigma_data)
 
 
-def make_sample_density(config):
+def make_sample_density(config: ModelConfig):
     sd_config = config['sigma_sample_density']
     sigma_data = config['sigma_data']
     if sd_config['type'] == 'lognormal':

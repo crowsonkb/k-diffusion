@@ -1,5 +1,7 @@
 import math
 
+from typing import List, Union, overload
+
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -7,13 +9,17 @@ from torch.nn import functional as F
 from .. import layers, utils
 
 
-def orthogonal_(module):
+@overload
+def orthogonal_(module: nn.Conv2d) -> nn.Conv2d: ...
+@overload
+def orthogonal_(module: nn.Linear) -> nn.Linear: ...
+def orthogonal_(module: Union[nn.Conv2d, nn.Linear]) -> Union[nn.Conv2d, nn.Linear]:
     nn.init.orthogonal_(module.weight)
     return module
 
 
 class ResConvBlock(layers.ConditionedResidualBlock):
-    def __init__(self, feats_in, c_in, c_mid, c_out, group_size=32, dropout_rate=0.):
+    def __init__(self, feats_in, c_in, c_mid, c_out, group_size=32, dropout_rate=0.) -> None:
         skip = None if c_in == c_out else orthogonal_(nn.Conv2d(c_in, c_out, 1, bias=False))
         super().__init__(
             layers.AdaGN(feats_in, c_in, max(1, c_in // group_size)),
@@ -28,8 +34,8 @@ class ResConvBlock(layers.ConditionedResidualBlock):
 
 
 class DBlock(layers.ConditionedSequential):
-    def __init__(self, n_layers, feats_in, c_in, c_mid, c_out, group_size=32, head_size=64, dropout_rate=0., downsample=False, self_attn=False, cross_attn=False, c_enc=0):
-        modules = [nn.Identity()]
+    def __init__(self, n_layers, feats_in, c_in, c_mid, c_out, group_size=32, head_size=64, dropout_rate=0., downsample=False, self_attn=False, cross_attn=False, c_enc=0) -> None:
+        modules: List[nn.Module] = [nn.Identity()]
         for i in range(n_layers):
             my_c_in = c_in if i == 0 else c_mid
             my_c_out = c_mid if i < n_layers - 1 else c_out
@@ -49,8 +55,8 @@ class DBlock(layers.ConditionedSequential):
 
 
 class UBlock(layers.ConditionedSequential):
-    def __init__(self, n_layers, feats_in, c_in, c_mid, c_out, group_size=32, head_size=64, dropout_rate=0., upsample=False, self_attn=False, cross_attn=False, c_enc=0):
-        modules = []
+    def __init__(self, n_layers, feats_in, c_in, c_mid, c_out, group_size=32, head_size=64, dropout_rate=0., upsample=False, self_attn=False, cross_attn=False, c_enc=0) -> None:
+        modules: List[nn.Module] = []
         for i in range(n_layers):
             my_c_in = c_in if i == 0 else c_mid
             my_c_out = c_mid if i < n_layers - 1 else c_out
@@ -76,8 +82,8 @@ class UBlock(layers.ConditionedSequential):
 
 
 class MappingNet(nn.Sequential):
-    def __init__(self, feats_in, feats_out, n_layers=2):
-        layers = []
+    def __init__(self, feats_in, feats_out, n_layers=2) -> None:
+        layers: List[nn.Module] = []
         for i in range(n_layers):
             layers.append(orthogonal_(nn.Linear(feats_in if i == 0 else feats_out, feats_out)))
             layers.append(nn.GELU())
@@ -85,7 +91,7 @@ class MappingNet(nn.Sequential):
 
 
 class ImageDenoiserModelV1(nn.Module):
-    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, cross_attn_depths=None, mapping_cond_dim=0, unet_cond_dim=0, cross_cond_dim=0, dropout_rate=0., patch_size=1, skip_stages=0, has_variance=False):
+    def __init__(self, c_in, feats_in, depths, channels, self_attn_depths, cross_attn_depths=None, mapping_cond_dim=0, unet_cond_dim=0, cross_cond_dim=0, dropout_rate=0., patch_size=1, skip_stages=0, has_variance=False) -> None:
         super().__init__()
         self.c_in = c_in
         self.channels = channels
@@ -99,7 +105,7 @@ class ImageDenoiserModelV1(nn.Module):
         self.proj_in = nn.Conv2d((c_in + unet_cond_dim) * self.patch_size ** 2, channels[max(0, skip_stages - 1)], 1)
         self.proj_out = nn.Conv2d(channels[max(0, skip_stages - 1)], c_in * self.patch_size ** 2 + (1 if self.has_variance else 0), 1)
         nn.init.zeros_(self.proj_out.weight)
-        nn.init.zeros_(self.proj_out.bias)
+        nn.init.zeros_(self.proj_out.bias)  # type: ignore  # self.proj_out.bias may be None and all falls
         if cross_cond_dim == 0:
             cross_attn_depths = [False] * len(self_attn_depths)
         d_blocks, u_blocks = [], []

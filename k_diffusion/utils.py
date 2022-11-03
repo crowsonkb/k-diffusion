@@ -3,25 +3,27 @@ import hashlib
 import math
 from pathlib import Path
 import shutil
+from typing import Optional, Union
 import urllib
 import warnings
 
 from PIL import Image
 import torch
 from torch import nn, optim
+from torch import Tensor
 from torch.utils import data
 from torchvision.transforms import functional as TF
 
 
-def from_pil_image(x):
+def from_pil_image(x: Image.Image) -> Tensor:
     """Converts from a PIL image to a tensor."""
-    x = TF.to_tensor(x)
-    if x.ndim == 2:
-        x = x[..., None]
-    return x * 2 - 1
+    tensor = TF.to_tensor(x)
+    if tensor.ndim == 2:
+        tensor = tensor[..., None]
+    return tensor * 2 - 1
 
 
-def to_pil_image(x):
+def to_pil_image(x: Tensor) -> Image.Image:
     """Converts from a tensor to a PIL image."""
     if x.ndim == 4:
         assert x.shape[0] == 1
@@ -37,7 +39,7 @@ def hf_datasets_augs_helper(examples, transform, image_key, mode='RGB'):
     return {image_key: images}
 
 
-def append_dims(x, target_dims):
+def append_dims(x: Tensor, target_dims: int) -> Tensor:
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim
     if dims_to_append < 0:
@@ -45,12 +47,12 @@ def append_dims(x, target_dims):
     return x[(...,) + (None,) * dims_to_append]
 
 
-def n_params(module):
+def n_params(module) -> int:
     """Returns the number of trainable parameters in a module."""
     return sum(p.numel() for p in module.parameters())
 
 
-def download_file(path, url, digest=None):
+def download_file(path: Union[str, Path], url: str, digest: Optional[str] = None) -> Path:
     """Downloads a file if it does not exist, optionally checking its SHA-256 hash."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)

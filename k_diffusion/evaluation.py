@@ -2,11 +2,14 @@ import math
 import os
 from pathlib import Path
 
+from typing import Optional
+
 from cleanfid.inception_torchscript import InceptionV3W
 import clip
 from resize_right import resize
 import torch
 from torch import nn
+from torch import Tensor
 from torch.nn import functional as F
 from torchvision import transforms
 from tqdm.auto import trange
@@ -24,7 +27,7 @@ class InceptionV3FeatureExtractor(nn.Module):
         self.model = InceptionV3W(str(path), resize_inside=False).to(device)
         self.size = (299, 299)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         if x.shape[2:4] != self.size:
             x = resize(x, out_shape=self.size, pad_mode='reflect')
         if x.shape[1] == 1:
@@ -41,7 +44,7 @@ class CLIPFeatureExtractor(nn.Module):
                                               std=(0.26862954, 0.26130258, 0.27577711))
         self.size = (self.model.visual.input_resolution, self.model.visual.input_resolution)
 
-    def forward(self, x):
+    def forward(self, x: Tensor) -> Tensor:
         if x.shape[2:4] != self.size:
             x = resize(x.add(1).div(2), out_shape=self.size, pad_mode='reflect').clamp(0, 1)
         x = self.normalize(x)
@@ -50,7 +53,7 @@ class CLIPFeatureExtractor(nn.Module):
         return x
 
 
-def compute_features(accelerator, sample_fn, extractor_fn, n, batch_size):
+def compute_features(accelerator, sample_fn, extractor_fn, n, batch_size: Optional[int]) -> Tensor:
     n_per_proc = math.ceil(n / accelerator.num_processes)
     feats_all = []
     try:
@@ -63,13 +66,13 @@ def compute_features(accelerator, sample_fn, extractor_fn, n, batch_size):
     return torch.cat(feats_all)[:n]
 
 
-def polynomial_kernel(x, y):
+def polynomial_kernel(x: Tensor, y: Tensor) -> Tensor:
     d = x.shape[-1]
     dot = x @ y.transpose(-2, -1)
     return (dot / d + 1) ** 3
 
 
-def squared_mmd(x, y, kernel=polynomial_kernel):
+def squared_mmd(x: Tensor, y: Tensor, kernel=polynomial_kernel) -> Tensor:
     m = x.shape[-2]
     n = y.shape[-2]
     kxx = kernel(x, x)
@@ -85,7 +88,7 @@ def squared_mmd(x, y, kernel=polynomial_kernel):
 
 
 @utils.tf32_mode(matmul=False)
-def kid(x, y, max_size=5000):
+def kid(x: Tensor, y: Tensor, max_size: int = 5000) -> Tensor:
     x_size, y_size = x.shape[0], y.shape[0]
     n_partitions = math.ceil(max(x_size / max_size, y_size / max_size))
     total_mmd = x.new_zeros([])
@@ -98,20 +101,24 @@ def kid(x, y, max_size=5000):
 
 class _MatrixSquareRootEig(torch.autograd.Function):
     @staticmethod
-    def forward(ctx, a):
+    def forward(ctx, a: Tensor) -> Tensor:  # type: ignore  # this violates LSP
+        vals: Tensor
+        vecs: Tensor
         vals, vecs = torch.linalg.eigh(a)
         ctx.save_for_backward(vals, vecs)
         return vecs @ vals.abs().sqrt().diag_embed() @ vecs.transpose(-2, -1)
 
     @staticmethod
-    def backward(ctx, grad_output):
+    def backward(ctx, grad_output: Tensor) -> Tensor:  # type: ignore  # this violates LSP
+        vals: Tensor
+        vecs: Tensor
         vals, vecs = ctx.saved_tensors
         d = vals.abs().sqrt().unsqueeze(-1).repeat_interleave(vals.shape[-1], -1)
         vecs_t = vecs.transpose(-2, -1)
         return vecs @ (vecs_t @ grad_output @ vecs / (d + d.transpose(-2, -1))) @ vecs_t
 
 
-def sqrtm_eig(a):
+def sqrtm_eig(a: Tensor) -> Tensor:
     if a.ndim < 2:
         raise RuntimeError('tensor of matrices must have at least 2 dimensions')
     if a.shape[-2] != a.shape[-1]:
@@ -120,7 +127,7 @@ def sqrtm_eig(a):
 
 
 @utils.tf32_mode(matmul=False)
-def fid(x, y, eps=1e-8):
+def fid(x: Tensor, y: Tensor, eps: float = 1e-8) -> Tensor:
     x_mean = x.mean(dim=0)
     y_mean = y.mean(dim=0)
     mean_term = (x_mean - y_mean).pow(2).sum()

@@ -1,28 +1,32 @@
-from functools import reduce
 import math
 import operator
+from functools import reduce
+
+from typing import Tuple
 
 import numpy as np
+from PIL.Image import Image
 from skimage import transform
 import torch
 from torch import nn
+from torch import Tensor
 
 
-def translate2d(tx, ty):
+def translate2d(tx: float, ty: float) -> Tensor:
     mat = [[1, 0, tx],
            [0, 1, ty],
            [0, 0,  1]]
     return torch.tensor(mat, dtype=torch.float32)
 
 
-def scale2d(sx, sy):
+def scale2d(sx: float, sy: float) -> Tensor:
     mat = [[sx,  0, 0],
            [ 0, sy, 0],
            [ 0,  0, 1]]
     return torch.tensor(mat, dtype=torch.float32)
 
 
-def rotate2d(theta):
+def rotate2d(theta: Tensor) -> Tensor:
     mat = [[torch.cos(theta), torch.sin(-theta), 0],
            [torch.sin(theta),  torch.cos(theta), 0],
            [               0,                 0, 1]]
@@ -36,7 +40,7 @@ class KarrasAugmentationPipeline:
         self.a_aniso = a_aniso
         self.a_trans = a_trans
 
-    def __call__(self, image):
+    def __call__(self, image: Image) -> Tuple[Image, Tensor, Tensor]:
         h, w = image.size
         mats = [translate2d(h / 2 - 0.5, w / 2 - 0.5)]
 
@@ -74,12 +78,12 @@ class KarrasAugmentationPipeline:
         cond = torch.stack([a0, a1, a2, a3.cos() - 1, a3.sin(), a5 * a4.cos(), a5 * a4.sin(), a6, a7])
 
         # apply the transformation
-        image_orig = np.array(image, dtype=np.float32) / 255
-        if image_orig.ndim == 2:
-            image_orig = image_orig[..., None]
+        image_np = np.array(image, dtype=np.float32) / 255
+        if image_np.ndim == 2:
+            image_np = image_np[..., None]
         tf = transform.AffineTransform(mat.numpy())
-        image = transform.warp(image_orig, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
-        image_orig = torch.as_tensor(image_orig).movedim(2, 0) * 2 - 1
+        image = transform.warp(image_np, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
+        image_orig = torch.as_tensor(image_np).movedim(2, 0) * 2 - 1
         image = torch.as_tensor(image).movedim(2, 0) * 2 - 1
         return image, image_orig, cond
 
@@ -88,7 +92,7 @@ class KarrasAugmentWrapper(nn.Module):
     def __init__(self, model):
         super().__init__()
         self.inner_model = model
-    
+
     def forward(self, input, sigma, aug_cond=None, mapping_cond=None, **kwargs):
         if aug_cond is None:
             aug_cond = input.new_zeros([input.shape[0], 9])

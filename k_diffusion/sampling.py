@@ -1,19 +1,22 @@
 import math
 
+from typing import Any, Callable, Dict, Tuple
+
 from scipy import integrate
 import torch
 from torch import nn
+from torch import Tensor
 from torchdiffeq import odeint
 from tqdm.auto import trange, tqdm
 
 from . import utils
 
 
-def append_zero(x):
+def append_zero(x: Tensor) -> Tensor:
     return torch.cat([x, x.new_zeros([1])])
 
 
-def get_sigmas_karras(n, sigma_min, sigma_max, rho=7., device='cpu'):
+def get_sigmas_karras(n: int, sigma_min: float, sigma_max: float, rho: float = 7., device='cpu') -> Tensor:
     """Constructs the noise schedule of Karras et al. (2022)."""
     ramp = torch.linspace(0, 1, n)
     min_inv_rho = sigma_min ** (1 / rho)
@@ -22,20 +25,20 @@ def get_sigmas_karras(n, sigma_min, sigma_max, rho=7., device='cpu'):
     return append_zero(sigmas).to(device)
 
 
-def get_sigmas_exponential(n, sigma_min, sigma_max, device='cpu'):
+def get_sigmas_exponential(n: int, sigma_min: float, sigma_max: float, device='cpu') -> Tensor:
     """Constructs an exponential noise schedule."""
     sigmas = torch.linspace(math.log(sigma_max), math.log(sigma_min), n, device=device).exp()
     return append_zero(sigmas)
 
 
-def get_sigmas_vp(n, beta_d=19.9, beta_min=0.1, eps_s=1e-3, device='cpu'):
+def get_sigmas_vp(n: int, beta_d: float = 19.9, beta_min: float = 0.1, eps_s: float = 1e-3, device='cpu') -> Tensor:
     """Constructs a continuous VP noise schedule."""
     t = torch.linspace(1, eps_s, n, device=device)
     sigmas = torch.sqrt(torch.exp(beta_d * t ** 2 / 2 + beta_min * t) - 1)
     return append_zero(sigmas)
 
 
-def to_d(x, sigma, denoised):
+def to_d(x: Tensor, sigma: Tensor, denoised: Tensor) -> Tensor:
     """Converts a denoiser output to a Karras ODE derivative."""
     return (x - denoised) / utils.append_dims(sigma, x.ndim)
 
@@ -51,7 +54,7 @@ def get_ancestral_step(sigma_from, sigma_to, eta=1.):
 
 
 @torch.no_grad()
-def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.):
+def sample_euler(model, x: Tensor, sigmas: Tensor, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.) -> Tensor:
     """Implements Algorithm 2 (Euler steps) from Karras et al. (2022)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -72,7 +75,7 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
 
 
 @torch.no_grad()
-def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1.):
+def sample_euler_ancestral(model, x: Tensor, sigmas: Tensor, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, eta=1.) -> Tensor:
     """Ancestral sampling with Euler method steps."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -90,7 +93,7 @@ def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
 
 
 @torch.no_grad()
-def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.):
+def sample_heun(model, x: Tensor, sigmas: Tensor, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.) -> Tensor:
     """Implements Algorithm 2 (Heun steps) from Karras et al. (2022)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -119,7 +122,7 @@ def sample_heun(model, x, sigmas, extra_args=None, callback=None, disable=None, 
 
 
 @torch.no_grad()
-def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.):
+def sample_dpm_2(model, x: Tensor, sigmas: Tensor, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, s_churn=0., s_tmin=0., s_tmax=float('inf'), s_noise=1.) -> Tensor:
     """A sampler inspired by DPM-Solver-2 and Algorithm 2 from Karras et al. (2022)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -150,7 +153,7 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
 
 
 @torch.no_grad()
-def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1.):
+def sample_dpm_2_ancestral(model, x: Tensor, sigmas: Tensor, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, eta=1.) -> Tensor:
     """Ancestral sampling with DPM-Solver inspired second-order steps."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
@@ -177,7 +180,7 @@ def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
     return x
 
 
-def linear_multistep_coeff(order, t, i, j):
+def linear_multistep_coeff(order: int, t, i: int, j: int):
     if order - 1 > i:
         raise ValueError(f'Order {order} too high for step {i}')
     def fn(tau):
@@ -191,7 +194,7 @@ def linear_multistep_coeff(order, t, i, j):
 
 
 @torch.no_grad()
-def sample_lms(model, x, sigmas, extra_args=None, callback=None, disable=None, order=4):
+def sample_lms(model, x: Tensor, sigmas: Tensor, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, order=4) -> Tensor:
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     sigmas_cpu = sigmas.detach().cpu().numpy()
@@ -211,12 +214,12 @@ def sample_lms(model, x, sigmas, extra_args=None, callback=None, disable=None, o
 
 
 @torch.no_grad()
-def log_likelihood(model, x, sigma_min, sigma_max, extra_args=None, atol=1e-4, rtol=1e-4):
+def log_likelihood(model, x: Tensor, sigma_min: float, sigma_max: float, extra_args=None, atol=1e-4, rtol=1e-4) -> Tuple[Tensor, Dict[str, int]]:
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
     v = torch.randint_like(x, 2) * 2 - 1
-    fevals = 0
-    def ode_fn(sigma, x):
+    fevals: int = 0
+    def ode_fn(sigma, x: Tensor):
         nonlocal fevals
         with torch.enable_grad():
             x = x[0].detach().requires_grad_()
@@ -230,7 +233,7 @@ def log_likelihood(model, x, sigma_min, sigma_max, extra_args=None, atol=1e-4, r
     t = x.new_tensor([sigma_min, sigma_max])
     sol = odeint(ode_fn, x_min, t, atol=atol, rtol=rtol, method='dopri5')
     latent, delta_ll = sol[0][-1], sol[1][-1]
-    ll_prior = torch.distributions.Normal(0, sigma_max).log_prob(latent).flatten(1).sum(1)
+    ll_prior: Tensor = torch.distributions.Normal(0, sigma_max).log_prob(latent).flatten(1).sum(1)
     return ll_prior + delta_ll, {'fevals': fevals}
 
 
@@ -248,7 +251,7 @@ class PIDStepSizeController:
     def limiter(self, x):
         return 1 + math.atan(x - 1)
 
-    def propose_step(self, error):
+    def propose_step(self, error) -> bool:
         inv_error = 1 / (float(error) + self.eps)
         if not self.errs:
             self.errs = [inv_error, inv_error, inv_error]
@@ -266,7 +269,7 @@ class PIDStepSizeController:
 class DPMSolver(nn.Module):
     """DPM-Solver. See https://arxiv.org/abs/2206.00927."""
 
-    def __init__(self, model, extra_args=None, eps_callback=None, info_callback=None):
+    def __init__(self, model, extra_args: Dict[str, Any] = None, eps_callback=None, info_callback=None):
         super().__init__()
         self.model = model
         self.extra_args = {} if extra_args is None else extra_args
@@ -318,7 +321,7 @@ class DPMSolver(nn.Module):
         x_3 = x - self.sigma(t_next) * h.expm1() * eps - self.sigma(t_next) / r2 * (h.expm1() / h - 1) * (eps_r2 - eps)
         return x_3, eps_cache
 
-    def dpm_solver_fast(self, x, t_start, t_end, nfe, eta=0., s_noise=1.):
+    def dpm_solver_fast(self, x: Tensor, t_start, t_end, nfe, eta=0., s_noise=1.) -> Tensor:
         if not t_end > t_start and eta:
             raise ValueError('eta must be 0 for reverse sampling')
 
@@ -331,7 +334,7 @@ class DPMSolver(nn.Module):
             orders = [3] * (m - 1) + [nfe % 3]
 
         for i in range(len(orders)):
-            eps_cache = {}
+            eps_cache: dict = {}
             t, t_next = ts[i], ts[i + 1]
             if eta:
                 sd, su = get_ancestral_step(self.sigma(t), self.sigma(t_next), eta)
@@ -356,7 +359,7 @@ class DPMSolver(nn.Module):
 
         return x
 
-    def dpm_solver_adaptive(self, x, t_start, t_end, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1.):
+    def dpm_solver_adaptive(self, x: Tensor, t_start, t_end, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1.) -> Tuple[Tensor, Dict[str, int]]:
         if order not in {2, 3}:
             raise ValueError('order should be 2 or 3')
         forward = t_end > t_start
@@ -372,7 +375,7 @@ class DPMSolver(nn.Module):
         info = {'steps': 0, 'nfe': 0, 'n_accept': 0, 'n_reject': 0}
 
         while s < t_end - 1e-5 if forward else s > t_end + 1e-5:
-            eps_cache = {}
+            eps_cache: dict = {}
             t = torch.minimum(t_end, s + pid.h) if forward else torch.maximum(t_end, s + pid.h)
             if eta:
                 sd, su = get_ancestral_step(self.sigma(s), self.sigma(t), eta)
@@ -410,7 +413,7 @@ class DPMSolver(nn.Module):
 
 
 @torch.no_grad()
-def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback=None, disable=None, eta=0., s_noise=1.):
+def sample_dpm_fast(model, x: Tensor, sigma_min, sigma_max, n, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, eta=0., s_noise=1.):
     """DPM-Solver-Fast (fixed step size). See https://arxiv.org/abs/2206.00927."""
     if sigma_min <= 0 or sigma_max <= 0:
         raise ValueError('sigma_min and sigma_max must not be 0')
@@ -422,7 +425,7 @@ def sample_dpm_fast(model, x, sigma_min, sigma_max, n, extra_args=None, callback
 
 
 @torch.no_grad()
-def sample_dpm_adaptive(model, x, sigma_min, sigma_max, extra_args=None, callback=None, disable=None, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., return_info=False):
+def sample_dpm_adaptive(model, x: Tensor, sigma_min, sigma_max, extra_args: Dict[str, Any] = None, callback: Callable[[Dict], Any] = None, disable: bool = None, order=3, rtol=0.05, atol=0.0078, h_init=0.05, pcoeff=0., icoeff=1., dcoeff=0., accept_safety=0.81, eta=0., s_noise=1., return_info: bool = False):
     """DPM-Solver-12 and 23 (adaptive step size). See https://arxiv.org/abs/2206.00927."""
     if sigma_min <= 0 or sigma_max <= 0:
         raise ValueError('sigma_min and sigma_max must not be 0')

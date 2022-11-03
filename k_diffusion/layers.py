@@ -1,8 +1,9 @@
 import math
+from typing import Tuple
 
-from einops import rearrange, repeat
 import torch
 from torch import nn
+from torch import Tensor
 from torch.nn import functional as F
 
 from . import utils
@@ -17,26 +18,26 @@ class Denoiser(nn.Module):
         self.inner_model = inner_model
         self.sigma_data = sigma_data
 
-    def get_scalings(self, sigma):
+    def get_scalings(self, sigma: Tensor) -> Tuple[Tensor, Tensor, Tensor]:
         c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
         c_out = sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
         c_in = 1 / (sigma ** 2 + self.sigma_data ** 2) ** 0.5
         return c_skip, c_out, c_in
 
-    def loss(self, input, noise, sigma, **kwargs):
+    def loss(self, input: Tensor, noise: Tensor, sigma: Tensor, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
         target = (input - c_skip * noised_input) / c_out
         return (model_output - target).pow(2).flatten(1).mean(1)
 
-    def forward(self, input, sigma, **kwargs):
+    def forward(self, input: Tensor, sigma: Tensor, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         return self.inner_model(input * c_in, sigma, **kwargs) * c_out + input * c_skip
 
 
 class DenoiserWithVariance(Denoiser):
-    def loss(self, input, noise, sigma, **kwargs):
+    def loss(self, input: Tensor, noise: Tensor, sigma: Tensor, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output, logvar = self.inner_model(noised_input * c_in, sigma, return_variance=True, **kwargs)
