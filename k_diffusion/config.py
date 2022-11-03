@@ -1,37 +1,50 @@
 from functools import partial
 import json
 import math
-import warnings
 
-from typing import Any, BinaryIO, List, Optional, TextIO, TypedDict, Union
+from typing import Any, BinaryIO, TextIO, TypedDict
+from typing import Callable, List, Optional, Tuple, Union
 
 from jsonmerge import merge
 
-from . import augmentation, layers, models, utils
+from .models import ImageDenoiserModelV1
+from .augmentation import KarrasAugmentWrapper
+from . import layers, utils
 
 
 class ModelConfig(TypedDict):
-    sigma_data: float
+    type: str
+    input_channels: int
+    input_size: Tuple[int, int]
     patch_size: int
+    mapping_out: int
+    depths: List[int]
+    channels: List[int]
+    self_attn_depths: List[bool]
+    has_variance: bool
     dropout_rate: float
     augment_wrapper: bool
     augment_prob: float
+    sigma_data: float
+    sigma_min: float
+    sigma_max: float
+    sigma_sample_density: dict
     mapping_cond_dim: int
     unet_cond_dim: int
     cross_cond_dim: int
     cross_attn_depths: Optional[Any]
     skip_stages: int
-    has_variance: bool
 
 
 class DatasetConfig(TypedDict):
     type: str
+    location: str
 
 
 class OptimizerConfig(TypedDict):
     type: str
     lr: float
-    betas: List[float]
+    betas: Tuple[float, float]  # actually in JSON it's a list with two numbers
     eps: float
     weight_decay: float
 
@@ -41,6 +54,7 @@ class LRSchedConfig(TypedDict):
     inv_gamma: float
     power: float
     warmup: float
+    max_value: float
 
 
 class EMASchedConfig(TypedDict):
@@ -58,19 +72,19 @@ class Config(TypedDict):
 
 
 def load_config(file: Union[BinaryIO, TextIO]) -> Config:
-    defaults: Config = {
+    defaults = {
         "model": {
-            "sigma_data": 1.0,
             "patch_size": 1,
+            "has_variance": False,
             "dropout_rate": 0.0,
             "augment_wrapper": True,
             "augment_prob": 0.0,
+            "sigma_data": 1.0,
             "mapping_cond_dim": 0,
             "unet_cond_dim": 0,
             "cross_cond_dim": 0,
             "cross_attn_depths": None,
             "skip_stages": 0,
-            "has_variance": False,
         },
         "dataset": {
             "type": "imagefolder",
@@ -94,10 +108,13 @@ def load_config(file: Union[BinaryIO, TextIO]) -> Config:
     return merge(defaults, config)
 
 
-def make_model(config: Config):
+def make_model(
+    config: Config,
+) -> Union[ImageDenoiserModelV1, KarrasAugmentWrapper]:
     model_config = config["model"]
     assert model_config["type"] == "image_v1"
-    model = models.ImageDenoiserModelV1(
+    model: Union[ImageDenoiserModelV1, KarrasAugmentWrapper]
+    model = ImageDenoiserModelV1(
         model_config["input_channels"],
         model_config["mapping_out"],
         model_config["depths"],
@@ -114,11 +131,11 @@ def make_model(config: Config):
         has_variance=model_config["has_variance"],
     )
     if model_config["augment_wrapper"]:
-        model = augmentation.KarrasAugmentWrapper(model)
+        model = KarrasAugmentWrapper(model)
     return model
 
 
-def make_denoiser_wrapper(config: Config):
+def make_denoiser_wrapper(config: Config) -> Callable[..., Union[layers.Denoiser, layers.DenoiserWithVariance]]:
     model_config = config["model"]
     sigma_data = model_config.get("sigma_data", 1.0)
     has_variance = model_config.get("has_variance", False)
