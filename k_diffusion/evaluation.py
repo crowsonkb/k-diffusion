@@ -18,18 +18,21 @@ from . import utils
 
 
 class InceptionV3FeatureExtractor(nn.Module):
-    def __init__(self, device='cpu'):
+    def __init__(self, device="cpu"):
         super().__init__()
-        path = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'k-diffusion'
-        url = 'https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/inception-2015-12-05.pt'
-        digest = 'f58cb9b6ec323ed63459aa4fb441fe750cfe39fafad6da5cb504a16f19e958f4'
-        utils.download_file(path / 'inception-2015-12-05.pt', url, digest)
+        path = (
+            Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
+            / "k-diffusion"
+        )
+        url = "https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/inception-2015-12-05.pt"
+        digest = "f58cb9b6ec323ed63459aa4fb441fe750cfe39fafad6da5cb504a16f19e958f4"
+        utils.download_file(path / "inception-2015-12-05.pt", url, digest)
         self.model = InceptionV3W(str(path), resize_inside=False).to(device)
         self.size = (299, 299)
 
     def forward(self, x: Tensor) -> Tensor:
         if x.shape[2:4] != self.size:
-            x = resize(x, out_shape=self.size, pad_mode='reflect')
+            x = resize(x, out_shape=self.size, pad_mode="reflect")
         if x.shape[1] == 1:
             x = torch.cat([x] * 3, dim=1)
         x = (x * 127.5 + 127.5).clamp(0, 255)
@@ -37,27 +40,38 @@ class InceptionV3FeatureExtractor(nn.Module):
 
 
 class CLIPFeatureExtractor(nn.Module):
-    def __init__(self, name='ViT-L/14@336px', device='cpu'):
+    def __init__(self, name="ViT-L/14@336px", device="cpu"):
         super().__init__()
         self.model = clip.load(name, device=device)[0].eval().requires_grad_(False)
-        self.normalize = transforms.Normalize(mean=(0.48145466, 0.4578275, 0.40821073),
-                                              std=(0.26862954, 0.26130258, 0.27577711))
-        self.size = (self.model.visual.input_resolution, self.model.visual.input_resolution)
+        self.normalize = transforms.Normalize(
+            mean=(0.48145466, 0.4578275, 0.40821073),
+            std=(0.26862954, 0.26130258, 0.27577711),
+        )
+        self.size = (
+            self.model.visual.input_resolution,
+            self.model.visual.input_resolution,
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         if x.shape[2:4] != self.size:
-            x = resize(x.add(1).div(2), out_shape=self.size, pad_mode='reflect').clamp(0, 1)
+            x = resize(x.add(1).div(2), out_shape=self.size, pad_mode="reflect").clamp(
+                0, 1
+            )
         x = self.normalize(x)
         x = self.model.encode_image(x).float()
         x = F.normalize(x) * x.shape[1] ** 0.5
         return x
 
 
-def compute_features(accelerator, sample_fn, extractor_fn, n, batch_size: Optional[int]) -> Tensor:
+def compute_features(
+    accelerator, sample_fn, extractor_fn, n, batch_size: Optional[int]
+) -> Tensor:
     n_per_proc = math.ceil(n / accelerator.num_processes)
     feats_all = []
     try:
-        for i in trange(0, n_per_proc, batch_size, disable=not accelerator.is_main_process):
+        for i in trange(
+            0, n_per_proc, batch_size, disable=not accelerator.is_main_process
+        ):
             cur_batch_size = min(n - i, batch_size)
             samples = sample_fn(cur_batch_size)[:cur_batch_size]
             feats_all.append(accelerator.gather(extractor_fn(samples)))
@@ -93,8 +107,12 @@ def kid(x: Tensor, y: Tensor, max_size: int = 5000) -> Tensor:
     n_partitions = math.ceil(max(x_size / max_size, y_size / max_size))
     total_mmd = x.new_zeros([])
     for i in range(n_partitions):
-        cur_x = x[round(i * x_size / n_partitions):round((i + 1) * x_size / n_partitions)]
-        cur_y = y[round(i * y_size / n_partitions):round((i + 1) * y_size / n_partitions)]
+        cur_x = x[
+            round(i * x_size / n_partitions) : round((i + 1) * x_size / n_partitions)
+        ]
+        cur_y = y[
+            round(i * y_size / n_partitions) : round((i + 1) * y_size / n_partitions)
+        ]
         total_mmd = total_mmd + squared_mmd(cur_x, cur_y)
     return total_mmd / n_partitions
 
@@ -120,9 +138,9 @@ class _MatrixSquareRootEig(torch.autograd.Function):
 
 def sqrtm_eig(a: Tensor) -> Tensor:
     if a.ndim < 2:
-        raise RuntimeError('tensor of matrices must have at least 2 dimensions')
+        raise RuntimeError("tensor of matrices must have at least 2 dimensions")
     if a.shape[-2] != a.shape[-1]:
-        raise RuntimeError('tensor must be batches of square matrices')
+        raise RuntimeError("tensor must be batches of square matrices")
     return _MatrixSquareRootEig.apply(a)
 
 
@@ -137,5 +155,7 @@ def fid(x: Tensor, y: Tensor, eps: float = 1e-8) -> Tensor:
     x_cov = x_cov + eps_eye
     y_cov = y_cov + eps_eye
     x_cov_sqrt = sqrtm_eig(x_cov)
-    cov_term = torch.trace(x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt))
+    cov_term = torch.trace(
+        x_cov + y_cov - 2 * sqrtm_eig(x_cov_sqrt @ y_cov @ x_cov_sqrt)
+    )
     return mean_term + cov_term
