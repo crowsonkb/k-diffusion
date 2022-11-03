@@ -13,20 +13,28 @@ from torch import Tensor
 
 
 def translate2d(tx: float, ty: float) -> Tensor:
-    mat = [[1, 0, tx], [0, 1, ty], [0, 0, 1]]
+    mat = [
+        [1, 0, tx],
+        [0, 1, ty],
+        [0, 0, 1]
+    ]
     return torch.tensor(mat, dtype=torch.float32)
 
 
 def scale2d(sx: float, sy: float) -> Tensor:
-    mat = [[sx, 0, 0], [0, sy, 0], [0, 0, 1]]
+    mat = [
+        [sx, 0,  0],
+        [0,  sy, 0],
+        [0,  0,  1]
+    ]
     return torch.tensor(mat, dtype=torch.float32)
 
 
 def rotate2d(theta: Tensor) -> Tensor:
     mat = [
         [torch.cos(theta), torch.sin(-theta), 0],
-        [torch.sin(theta), torch.cos(theta), 0],
-        [0, 0, 1],
+        [torch.sin(theta), torch.cos(theta),  0],
+        [0,                0,                 1],
     ]
     return torch.tensor(mat, dtype=torch.float32)
 
