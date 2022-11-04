@@ -242,7 +242,7 @@ def main():
         n_per_proc = math.ceil(args.sample_n / accelerator.num_processes)
         x = torch.randn([n_per_proc, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
-        x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=not accelerator.is_main_process)
+        x_0 = K.sampling.sample_dpmpp_2m(model_ema, x, sigmas, disable=not accelerator.is_main_process)
         x_0 = accelerator.gather(x_0)[:args.sample_n]
         if accelerator.is_main_process:
             grid = utils.make_grid(x_0, nrow=math.ceil(args.sample_n ** 0.5), padding=0)
@@ -260,7 +260,7 @@ def main():
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
             x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
-            x_0 = K.sampling.sample_lms(model_ema, x, sigmas, disable=True)
+            x_0 = K.sampling.sample_dpmpp_2m(model_ema, x, sigmas, disable=True)
             return x_0
         fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
         if accelerator.is_main_process:

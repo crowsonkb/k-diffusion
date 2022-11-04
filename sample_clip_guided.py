@@ -49,8 +49,6 @@ def main():
                    help='the batch size')
     p.add_argument('--checkpoint', type=str, required=True,
                    help='the checkpoint to use')
-    p.add_argument('--churn', type=float, default=50.,
-                   help='the amount of noise to add during sampling')
     p.add_argument('--clip-guidance-scale', '-cgs', type=float, default=500.,
                    help='the CLIP guidance scale')
     p.add_argument('--clip-model', type=str, default='ViT-B/16', choices=clip.available_models(),
@@ -115,7 +113,7 @@ def main():
         sigmas = K.sampling.get_sigmas_karras(args.steps, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
             x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigmas[0]
-            x_0 = K.sampling.sample_dpm_2(model_fn, x, sigmas, s_churn=args.churn, disable=not accelerator.is_local_main_process)
+            x_0 = K.sampling.sample_dpmpp_2s_ancestral(model_fn, x, sigmas, eta=1., disable=not accelerator.is_local_main_process)
             return x_0
         x_0 = K.evaluation.compute_features(accelerator, sample_fn, lambda x: x, args.n, args.batch_size)
         if accelerator.is_main_process:
