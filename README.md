@@ -44,7 +44,7 @@ on all nodes.
 
 - k-diffusion models support progressive growing.
 
-- k-diffusion implements [DPM-Solver](https://arxiv.org/abs/2206.00927), which produces higher quality samples at the same number of function evalutions as Karras Algorithm 2, as well as supporting adaptive step size control. It also implements a [linear multistep](https://en.wikipedia.org/wiki/Linear_multistep_method#Adams–Bashforth_methods) sampler (comparable to [PLMS](https://arxiv.org/abs/2202.09778)).
+- k-diffusion implements [DPM-Solver](https://arxiv.org/abs/2206.00927), which produces higher quality samples at the same number of function evalutions as Karras Algorithm 2, as well as supporting adaptive step size control. [DPM-Solver++(2S) and (2M)](https://arxiv.org/abs/2211.01095) are implemented now too for improved quality with low numbers of steps.
 
 - k-diffusion supports [CLIP](https://openai.com/blog/clip/) guided sampling from unconditional diffusion models (see `sample_clip_guided.py`).
 
