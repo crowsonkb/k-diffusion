@@ -8,19 +8,20 @@ from functools import partial
 import math
 import json
 from pathlib import Path
+from typing import Union
 
 import accelerate
 import torch
-from torch import nn, optim
+from torch import optim
 from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
-from tqdm.auto import trange, tqdm
+from tqdm.auto import tqdm
 
 import k_diffusion as K
 
 
-def main():
+def main() -> None:
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--batch-size', type=int, default=64,
@@ -104,6 +105,7 @@ def main():
         log_config['parameters'] = K.utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
+    opt: Union[optim.AdamW, optim.SGD]
     if opt_config['type'] == 'adamw':
         opt = optim.AdamW(inner_model.parameters(),
                           lr=opt_config['lr'] if args.lr is None else args.lr,
@@ -214,7 +216,7 @@ def main():
         ema_sched.load_state_dict(ckpt['ema_sched'])
         epoch = ckpt['epoch'] + 1
         step = ckpt['step'] + 1
-        if args.gns and ckpt.get('gns_stats', None) is not None:
+        if gns_stats and ckpt.get('gns_stats', None) is not None:
             gns_stats.load_state_dict(ckpt['gns_stats'])
 
         del ckpt
@@ -305,7 +307,7 @@ def main():
                     losses_all = accelerator.gather(losses)
                     loss = losses_all.mean()
                     accelerator.backward(losses.mean())
-                    if args.gns:
+                    if gns_stats:
                         sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
                         gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
                     opt.step()
@@ -318,7 +320,7 @@ def main():
 
                 if accelerator.is_main_process:
                     if step % 25 == 0:
-                        if args.gns:
+                        if gns_stats:
                             tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.get_gns():g}')
                         else:
                             tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
@@ -330,7 +332,7 @@ def main():
                         'lr': sched.get_last_lr()[0],
                         'ema_decay': ema_decay,
                     }
-                    if args.gns:
+                    if gns_stats:
                         log_dict['gradient_noise_scale'] = gns_stats.get_gns()
                     wandb.log(log_dict, step=step)
 
