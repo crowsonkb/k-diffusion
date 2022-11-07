@@ -66,7 +66,7 @@ class BatchedBrownianTree:
         self.batched = True
         try:
             assert len(seed) == x.shape[0]
-            x = x[0]
+            w0 = w0[0]
         except TypeError:
             seed = [seed]
             self.batched = False
@@ -96,7 +96,7 @@ class BrownianTreeNoiseSampler:
     """
 
     def __init__(self, x, sigma_min, sigma_max, seed=None):
-        self.tree = BatchedBrownianTree(x, 0, sigma_max)
+        self.tree = BatchedBrownianTree(x, 0, sigma_max, seed)
 
     def __call__(self, sigma, sigma_next):
         t0, t1 = torch.as_tensor(sigma), torch.as_tensor(sigma_next)
