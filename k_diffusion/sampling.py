@@ -408,7 +408,7 @@ class DPMSolver(nn.Module):
             else:
                 x, eps_cache = self.dpm_solver_3_step(x, t, t_next_, eps_cache=eps_cache)
 
-            x = x + su * s_noise * noise_sampler(self.sigma(s), self.sigma(t))
+            x = x + su * s_noise * noise_sampler(self.sigma(t), self.sigma(t_next))
 
         return x
 
