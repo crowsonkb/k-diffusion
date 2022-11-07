@@ -128,7 +128,7 @@ def sample_euler(model, x, sigmas, extra_args=None, callback=None, disable=None,
 def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
     """Ancestral sampling with Euler method steps."""
     extra_args = {} if extra_args is None else extra_args
-    noise_sampler = default_noise_sampler if noise_sampler is None else noise_sampler
+    noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, **extra_args)
@@ -207,7 +207,7 @@ def sample_dpm_2(model, x, sigmas, extra_args=None, callback=None, disable=None,
 def sample_dpm_2_ancestral(model, x, sigmas, extra_args=None, callback=None, disable=None, eta=1., s_noise=1., noise_sampler=None):
     """Ancestral sampling with DPM-Solver second-order steps."""
     extra_args = {} if extra_args is None else extra_args
-    noise_sampler = default_noise_sampler if noise_sampler is None else noise_sampler
+    noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
     s_in = x.new_ones([x.shape[0]])
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, **extra_args)
