@@ -59,7 +59,7 @@ class BatchedBrownianTree:
     """A wrapper around torchsde.BrownianTree that enables batches of entropy."""
 
     def __init__(self, x, t0, t1, seed=None, **kwargs):
-        t0, t1, _ = self.sort(t0, t1)
+        t0, t1, self.sign = self.sort(t0, t1)
         w0 = kwargs.get('w0', torch.zeros_like(x))
         if seed is None:
             seed = torch.randint(0, 2 ** 63 - 1, []).item()
@@ -78,7 +78,7 @@ class BatchedBrownianTree:
 
     def __call__(self, t0, t1):
         t0, t1, sign = self.sort(t0, t1)
-        w = torch.stack([tree(t0, t1) for tree in self.trees]) * sign
+        w = torch.stack([tree(t0, t1) for tree in self.trees]) * (self.sign * sign)
         return w if self.batched else w[0]
 
 
