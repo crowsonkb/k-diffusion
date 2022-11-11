@@ -56,7 +56,7 @@ def generate_randoms(x, seed, steps):
     noise_tensors = [torch.ones_like(x) for _ in range(steps)]
     gen = torch.Generator(device=x.device)
     for i in range(x.shape[0]):
-        gen.manual_seed(seed+i + 31337) # this magic number is used for preventing the same random numbers for different batches
+        gen.manual_seed(seed+i + 31337) # this magic number is added to prevent the generation of the same random noise as the initial noise
         for s in range(steps):
             noise_tensors[s][i] = torch.randn(x.shape[1:], generator=gen, device=x.device).to(x.device).to(x.dtype)
     return noise_tensors
