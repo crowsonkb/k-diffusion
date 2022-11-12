@@ -93,13 +93,17 @@ class BrownianTreeNoiseSampler:
         seed (int or List[int]): The random seed. If a list of seeds is
             supplied instead of a single integer, then the noise sampler will
             use one BrownianTree per batch item, each with its own seed.
+        transform (callable): A function that maps sigma to the sampler's
+            internal timestep.
     """
 
-    def __init__(self, x, sigma_min, sigma_max, seed=None):
-        self.tree = BatchedBrownianTree(x, 0, sigma_max, seed)
+    def __init__(self, x, sigma_min, sigma_max, seed=None, transform=lambda x: x):
+        self.transform = transform
+        t0, t1 = self.transform(torch.as_tensor(sigma_min)), self.transform(torch.as_tensor(sigma_max))
+        self.tree = BatchedBrownianTree(x, t0, t1, seed)
 
     def __call__(self, sigma, sigma_next):
-        t0, t1 = torch.as_tensor(sigma), torch.as_tensor(sigma_next)
+        t0, t1 = self.transform(torch.as_tensor(sigma)), self.transform(torch.as_tensor(sigma_next))
         return self.tree(t0, t1) / (t1 - t0).abs().sqrt()
 
 
@@ -139,7 +143,8 @@ def sample_euler_ancestral(model, x, sigmas, extra_args=None, callback=None, dis
         # Euler method
         dt = sigma_down - sigmas[i]
         x = x + d * dt
-        x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
+        if sigmas[i + 1] > 0:
+            x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
     return x
 
 
@@ -522,7 +527,8 @@ def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, 
             denoised_2 = model(x_2, sigma_fn(s) * s_in, **extra_args)
             x = (sigma_fn(t_next) / sigma_fn(t)) * x - (-h).expm1() * denoised_2
         # Noise addition
-        x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
+        if sigmas[i + 1] > 0:
+            x = x + noise_sampler(sigmas[i], sigmas[i + 1]) * s_noise * sigma_up
     return x
 
 
