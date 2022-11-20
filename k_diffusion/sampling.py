@@ -29,6 +29,13 @@ def get_sigmas_exponential(n, sigma_min, sigma_max, device='cpu'):
     return append_zero(sigmas)
 
 
+def get_sigmas_polyexponential(n, sigma_min, sigma_max, rho=1., device='cpu'):
+    """Constructs an polynomial in log sigma noise schedule."""
+    ramp = torch.linspace(1, 0, n, device=device) ** rho
+    sigmas = torch.exp(ramp * (math.log(sigma_max) - math.log(sigma_min)) + math.log(sigma_min))
+    return append_zero(sigmas)
+
+
 def get_sigmas_vp(n, beta_d=19.9, beta_min=0.1, eps_s=1e-3, device='cpu'):
     """Constructs a continuous VP noise schedule."""
     t = torch.linspace(1, eps_s, n, device=device)
