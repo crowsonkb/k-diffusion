@@ -59,3 +59,30 @@ on all nodes.
 - Anything except unconditional image diffusion models
 
 - Latent diffusion
+
+## Support in 🧨Diffusers
+
+k-diffusion is also supported in [Diffusers](https://github.com/huggingface/diffusers). You can use it with any [stable diffusion compatible checkpoint](https://huggingface.co/models?library=diffusers) on the Hub.
+
+You need to install k-diffusion, diffusers and transformers:
+
+```
+pip install k-diffusion transformers diffusers accelerate
+```
+
+And then you can run k-diffusion in just a couple of lines of code:
+
+```python
+from diffusers import StableDiffusionKDiffusionPipeline
+import torch
+import os
+
+inference_steps = 25
+
+pipe = StableDiffusionKDiffusionPipeline.from_pretrained("stabilityai/stable-diffusion-2-1-base")
+pipe = pipe.to("cuda")
+
+for prompt in ["astronaut riding horse", "whale falling from sky", "magical forest", "highly photorealistic picture of johnny depp"]:
+    pipe.set_scheduler("sample_heun")
+    image = pipe(prompt, num_inference_steps=inference_steps).images[0]
+```
