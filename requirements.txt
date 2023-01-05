@@ -10,6 +10,7 @@ scikit-image
 scipy
 torch
 torchdiffeq
+torchsde
 torchvision
 tqdm
 wandb
