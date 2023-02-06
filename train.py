@@ -130,6 +130,8 @@ def main():
                                       num_steps=sched_config['num_steps'],
                                       decay=sched_config['decay'],
                                       warmup=sched_config['warmup'])
+    elif sched_config['type'] == 'constant':
+        sched = optim.lr_scheduler.LambdaLR(opt, lambda _: 1.0)
     else:
         raise ValueError('Invalid schedule type')
 

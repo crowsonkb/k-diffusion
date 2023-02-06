@@ -34,10 +34,7 @@ def load_config(file):
             'weight_decay': 1e-3,
         },
         'lr_sched': {
-            'type': 'inverse',
-            'inv_gamma': 20000.,
-            'power': 1.,
-            'warmup': 0.99,
+            'type': 'constant',
         },
         'ema_sched': {
             'type': 'inverse',
