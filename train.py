@@ -92,6 +92,7 @@ def main():
         torch.manual_seed(seeds[accelerator.process_index])
 
     inner_model = K.config.make_model(config)
+    inner_model_ema = deepcopy(inner_model)
     if accelerator.is_main_process:
         print('Parameters:', K.utils.n_params(inner_model))
 
@@ -181,7 +182,7 @@ def main():
         inner_model.load_state_dict(old_inner_model.state_dict())
         del ckpt, old_inner_model
 
-    inner_model, opt, train_dl = accelerator.prepare(inner_model, opt, train_dl)
+    inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
     if use_wandb:
         wandb.watch(inner_model)
     if args.gns:
@@ -194,7 +195,7 @@ def main():
     sample_density = K.config.make_sample_density(model_config)
 
     model = K.config.make_denoiser_wrapper(config)(inner_model)
-    model_ema = deepcopy(model)
+    model_ema = K.config.make_denoiser_wrapper(config)(inner_model_ema)
 
     state_path = Path(f'{args.name}_state.json')
 
