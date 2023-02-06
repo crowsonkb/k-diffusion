@@ -5,7 +5,7 @@ import torch
 from torch import nn
 from torch.nn import functional as F
 
-from . import utils
+from . import sampling, utils
 
 # Karras et al. preconditioned denoiser
 
@@ -44,6 +44,16 @@ class DenoiserWithVariance(Denoiser):
         target = (input - c_skip * noised_input) / c_out
         losses = ((model_output - target) ** 2 / logvar.exp() + logvar) / 2
         return losses.flatten(1).mean(1)
+
+
+class SimpleLossDenoiser(Denoiser):
+    """L_simple with the Karras et al. preconditioner."""
+
+    def loss(self, input, noise, sigma, **kwargs):
+        noised_input = input + noise * utils.append_dims(sigma, input.ndim)
+        denoised = self(noised_input, sigma, **kwargs)
+        eps = sampling.to_d(noised_input, sigma, denoised)
+        return (eps - noise).pow(2).flatten(1).mean(1)
 
 
 # Residual blocks

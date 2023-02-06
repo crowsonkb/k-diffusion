@@ -22,6 +22,7 @@ def load_config(file):
             'cross_attn_depths': None,
             'skip_stages': 0,
             'has_variance': False,
+            'loss_config': 'karras',
         },
         'dataset': {
             'type': 'imagefolder',
@@ -73,9 +74,16 @@ def make_denoiser_wrapper(config):
     config = config['model']
     sigma_data = config.get('sigma_data', 1.)
     has_variance = config.get('has_variance', False)
-    if not has_variance:
-        return partial(layers.Denoiser, sigma_data=sigma_data)
-    return partial(layers.DenoiserWithVariance, sigma_data=sigma_data)
+    loss_config = config.get('loss_config', 'karras')
+    if loss_config == 'karras':
+        if not has_variance:
+            return partial(layers.Denoiser, sigma_data=sigma_data)
+        return partial(layers.DenoiserWithVariance, sigma_data=sigma_data)
+    if loss_config == 'simple':
+        if has_variance:
+            raise ValueError('Simple loss config does not support a variance output')
+        return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data)
+    raise ValueError('Unknown loss config type')
 
 
 def make_sample_density(config):
@@ -95,9 +103,9 @@ def make_sample_density(config):
         min_value = sd_config['min_value'] if 'min_value' in sd_config else config['sigma_min']
         max_value = sd_config['max_value'] if 'max_value' in sd_config else config['sigma_max']
         return partial(utils.rand_log_uniform, min_value=min_value, max_value=max_value)
-    if sd_config['type'] == 'v-diffusion':
-        min_value = sd_config['min_value'] if 'min_value' in sd_config else 0.
-        max_value = sd_config['max_value'] if 'max_value' in sd_config else float('inf')
+    if sd_config['type'] in {'v-diffusion', 'cosine'}:
+        min_value = sd_config['min_value'] if 'min_value' in sd_config else 1e-3
+        max_value = sd_config['max_value'] if 'max_value' in sd_config else 1e3
         return partial(utils.rand_v_diffusion, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
     if sd_config['type'] == 'split-lognormal':
         loc = sd_config['mean'] if 'mean' in sd_config else sd_config['loc']
