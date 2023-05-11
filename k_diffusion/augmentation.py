@@ -93,7 +93,7 @@ class KarrasAugmentWrapper(nn.Module):
     def __init__(self, model):
         super().__init__()
         self.inner_model = model
-    
+
     def forward(self, input, sigma, aug_cond=None, mapping_cond=None, **kwargs):
         if aug_cond is None:
             aug_cond = input.new_zeros([input.shape[0], 9])
