@@ -5,8 +5,8 @@ class DDPGradientStatsHook:
     def __init__(self, ddp_module):
         try:
             ddp_module.register_comm_hook(self, self._hook_fn)
-        except AttributeError:
-            raise ValueError('DDPGradientStatsHook does not support non-DDP wrapped modules')
+        except AttributeError as ae:
+            raise ValueError('DDPGradientStatsHook does not support non-DDP wrapped modules') from ae
         self._clear_state()
 
     def _clear_state(self):

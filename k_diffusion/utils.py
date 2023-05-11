@@ -180,8 +180,11 @@ class InverseLR(optim.lr_scheduler._LRScheduler):
 
     def get_lr(self):
         if not self._get_lr_called_within_step:
-            warnings.warn("To get the last learning rate computed by the scheduler, "
-                          "please use `get_last_lr()`.")
+            warnings.warn(
+                "To get the last learning rate computed by the scheduler, "
+                "please use `get_last_lr()`.",
+                stacklevel=1,
+            )
 
         return self._get_closed_form_lr()
 
@@ -221,8 +224,11 @@ class ExponentialLR(optim.lr_scheduler._LRScheduler):
 
     def get_lr(self):
         if not self._get_lr_called_within_step:
-            warnings.warn("To get the last learning rate computed by the scheduler, "
-                          "please use `get_last_lr()`.")
+            warnings.warn(
+                "To get the last learning rate computed by the scheduler, "
+                "please use `get_last_lr()`.",
+                stacklevel=1,
+            )
 
         return self._get_closed_form_lr()
 
@@ -253,8 +259,11 @@ class ConstantLRWithWarmup(optim.lr_scheduler._LRScheduler):
 
     def get_lr(self):
         if not self._get_lr_called_within_step:
-            warnings.warn("To get the last learning rate computed by the scheduler, "
-                          "please use `get_last_lr()`.")
+            warnings.warn(
+                "To get the last learning rate computed by the scheduler, "
+                "please use `get_last_lr()`.",
+                stacklevel=1,
+            )
 
         return self._get_closed_form_lr()
 
