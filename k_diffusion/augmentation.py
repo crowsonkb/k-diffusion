@@ -3,7 +3,10 @@ import math
 import operator
 
 import numpy as np
-from skimage import transform
+try:
+    import skimage.transform as skt
+except ImportError:
+    skt = None
 import torch
 from torch import nn
 
@@ -31,6 +34,8 @@ def rotate2d(theta):
 
 class KarrasAugmentationPipeline:
     def __init__(self, a_prob=0.12, a_scale=2**0.2, a_aniso=2**0.2, a_trans=1/8, disable_all=False):
+        if not skt:
+            raise ImportError('Please install scikit-image to use KarrasAugmentationPipeline')
         self.a_prob = a_prob
         self.a_scale = a_scale
         self.a_aniso = a_aniso
@@ -78,9 +83,9 @@ class KarrasAugmentationPipeline:
         image_orig = np.array(image, dtype=np.float32) / 255
         if image_orig.ndim == 2:
             image_orig = image_orig[..., None]
-        tf = transform.AffineTransform(mat.numpy())
+        tf = skt.AffineTransform(mat.numpy())
         if not self.disable_all:
-            image = transform.warp(image_orig, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
+            image = skt.warp(image_orig, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
         else:
             image = image_orig
             cond = torch.zeros_like(cond)
