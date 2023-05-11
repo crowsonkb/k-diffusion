@@ -3,12 +3,10 @@
 """Extracts the configuration file from a slim inference checkpoint."""
 
 import argparse
-import json
 from pathlib import Path
 import sys
 
 import k_diffusion as K
-import safetensors.torch as safetorch
 
 
 def main():

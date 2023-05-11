@@ -4,7 +4,6 @@ import math
 from pathlib import Path
 import shutil
 import threading
-import time
 import urllib
 import warnings
 

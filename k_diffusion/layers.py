@@ -2,7 +2,6 @@ from functools import lru_cache, reduce
 import math
 
 from dctorch import functional as df
-from einops import rearrange, repeat
 import torch
 from torch import nn
 from torch.nn import functional as F
