@@ -3,9 +3,17 @@ import json
 import math
 import warnings
 
-from jsonmerge import merge
-
 from . import augmentation, layers, models, utils
+
+
+def merge_config(defaults, config):
+    result = {**defaults}
+    for key, value in config.items():
+        if isinstance(value, dict):
+            result[key] = merge_config(result.get(key, {}), value)
+        else:
+            result[key] = value
+    return result
 
 
 def load_config(file):
@@ -44,7 +52,7 @@ def load_config(file):
         },
     }
     config = json.load(file)
-    return merge(defaults, config)
+    return merge_config(defaults, config)
 
 
 def make_model(config):
