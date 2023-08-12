@@ -43,6 +43,8 @@ def main():
                    help='the configuration file of the model to grow from')
     p.add_argument('--lr', type=float,
                    help='the learning rate')
+    p.add_argument('--mixed-precision', type=str,
+                   help='the mixed precision type')
     p.add_argument('--name', type=str, default='model',
                    help='the name of the run')
     p.add_argument('--num-workers', type=int, default=8,
@@ -83,7 +85,7 @@ def main():
     size = model_config['input_size']
 
     ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=model_config['skip_stages'] > 0)
-    accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps)
+    accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps, mixed_precision=args.mixed_precision)
     device = accelerator.device
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
 
