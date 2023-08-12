@@ -12,10 +12,21 @@ from . import sampling, utils
 class Denoiser(nn.Module):
     """A Karras et al. preconditioner for denoising diffusion models."""
 
-    def __init__(self, inner_model, sigma_data=1.):
+    def __init__(self, inner_model, sigma_data=1., weighting='karras'):
         super().__init__()
         self.inner_model = inner_model
         self.sigma_data = sigma_data
+        if callable(weighting):
+            self.weighting = weighting
+        if weighting == 'karras':
+            self.weighting = torch.ones_like
+        elif weighting == 'soft-min-snr':
+            self.weighting = self._weighting_soft_min_snr
+        else:
+            raise ValueError(f'Unknown weighting type {weighting}')
+
+    def _weighting_soft_min_snr(self, sigma):
+        return (sigma * self.sigma_data) ** 2 / (sigma ** 2 + self.sigma_data ** 2) ** 2
 
     def get_scalings(self, sigma):
         c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
@@ -28,7 +39,8 @@ class Denoiser(nn.Module):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
         target = (input - c_skip * noised_input) / c_out
-        return (model_output - target).pow(2).flatten(1).mean(1)
+        weights = self.weighting(sigma)
+        return (model_output - target).pow(2).flatten(1).mean(1) * weights
 
     def forward(self, input, sigma, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]

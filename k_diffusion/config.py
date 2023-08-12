@@ -76,9 +76,10 @@ def make_denoiser_wrapper(config):
     has_variance = config.get('has_variance', False)
     loss_config = config.get('loss_config', 'karras')
     if loss_config == 'karras':
+        weighting = config.get('loss_weighting', 'karras')
         if not has_variance:
-            return partial(layers.Denoiser, sigma_data=sigma_data)
-        return partial(layers.DenoiserWithVariance, sigma_data=sigma_data)
+            return partial(layers.Denoiser, sigma_data=sigma_data, weighting=weighting)
+        return partial(layers.DenoiserWithVariance, sigma_data=sigma_data, weighting=weighting)
     if loss_config == 'simple':
         if has_variance:
             raise ValueError('Simple loss config does not support a variance output')
