@@ -45,7 +45,13 @@ def get_sigmas_vp(n, beta_d=19.9, beta_min=0.1, eps_s=1e-3, device='cpu'):
 
 def to_d(x, sigma, denoised):
     """Converts a denoiser output to a Karras ODE derivative."""
-    return (x - denoised) / utils.append_dims(sigma, x.ndim)
+    if sigma.shape == ():
+        # any tensor can divided by scala, no need for append dims
+        # utils.append_dims cause some bugs on mps device
+        frac = sigma 
+    else:
+        frac = utils.append_dims(sigma, x.ndim)
+    return (x - denoised) / frac
 
 
 def get_ancestral_step(sigma_from, sigma_to, eta=1.):
@@ -511,8 +517,8 @@ def sample_dpmpp_2s_ancestral(model, x, sigmas, extra_args=None, callback=None, 
     extra_args = {} if extra_args is None else extra_args
     noise_sampler = default_noise_sampler(x) if noise_sampler is None else noise_sampler
     s_in = x.new_ones([x.shape[0]])
-    sigma_fn = lambda t: t.neg().exp()
-    t_fn = lambda sigma: sigma.log().neg()
+    sigma_fn = _mps_to_cpu_convert(lambda t: t.neg().exp())
+    t_fn = _mps_to_cpu_convert(lambda sigma: sigma.log().neg())
 
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, **extra_args)
@@ -546,8 +552,8 @@ def sample_dpmpp_sde(model, x, sigmas, extra_args=None, callback=None, disable=N
     noise_sampler = BrownianTreeNoiseSampler(x, sigma_min, sigma_max) if noise_sampler is None else noise_sampler
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
-    sigma_fn = lambda t: t.neg().exp()
-    t_fn = lambda sigma: sigma.log().neg()
+    sigma_fn = _mps_to_cpu_convert(lambda t: t.neg().exp())
+    t_fn = _mps_to_cpu_convert(lambda sigma: sigma.log().neg())
 
     for i in trange(len(sigmas) - 1, disable=disable):
         denoised = model(x, sigmas[i] * s_in, **extra_args)
@@ -586,8 +592,8 @@ def sample_dpmpp_2m(model, x, sigmas, extra_args=None, callback=None, disable=No
     """DPM-Solver++(2M)."""
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
-    sigma_fn = lambda t: t.neg().exp()
-    t_fn = lambda sigma: sigma.log().neg()
+    sigma_fn = _mps_to_cpu_convert(lambda t: t.neg().exp())
+    t_fn = _mps_to_cpu_convert(lambda sigma: sigma.log().neg())
     old_denoised = None
 
     for i in trange(len(sigmas) - 1, disable=disable):
@@ -700,3 +706,12 @@ def sample_dpmpp_3m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
         denoised_1, denoised_2 = denoised, denoised_1
         h_1, h_2 = h, h_1
     return x
+
+def _mps_to_cpu_convert(op):
+    '''
+    some method on 'mps' device has precision bug
+    i tested 'exp' and 'log', both has bug
+    '''
+    def wrap(v):
+        return op(v) if v.device.type != 'mps' else op(v.to(device='cpu')).to(device=v.device)
+    return wrap
