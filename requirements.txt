@@ -2,7 +2,6 @@ accelerate
 clean-fid
 clip-anytorch
 einops
-jsonmerge
 kornia
 Pillow
 resize-right
