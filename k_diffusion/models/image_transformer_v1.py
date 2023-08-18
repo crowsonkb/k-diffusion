@@ -1,3 +1,7 @@
+"""k-diffusion transformer diffusion models, version 1."""
+
+import math
+
 from einops import rearrange
 import torch
 from torch import nn
@@ -70,6 +74,29 @@ class RMSNorm(nn.Module):
         return rms_norm(x, self.scale, self.eps)
 
 
+class QKNorm(nn.Module):
+    def __init__(self, n_heads, eps=1e-6, scale_init=10.0, max_scale=100.0):
+        super().__init__()
+        self.eps = eps
+        self.max_scale = math.log(max_scale)
+        self.scale = nn.Parameter(torch.full((n_heads,), math.log(scale_init)))
+        self.proj()
+
+    def extra_repr(self):
+        return f"n_heads={self.scale.shape[0]}, eps={self.eps}"
+
+    @torch.no_grad()
+    def proj(self):
+        """Modify the scale in-place so it doesn't get "stuck" with zero gradient if it's clamped
+        to the max value."""
+        self.scale.clamp_(max=self.max_scale)
+
+    def forward(self, x):
+        self.proj()
+        scale = torch.exp(0.5 * self.scale - 0.25 * math.log(x.shape[-1]))
+        return rms_norm(x, scale[:, None, None], self.eps)
+
+
 class AdaRMSNorm(nn.Module):
     def __init__(self, features, cond_features, eps=1e-6):
         super().__init__()
@@ -110,7 +137,7 @@ class SelfAttentionBlock(nn.Module):
         self.dropout = dropout
         self.norm = AdaRMSNorm(d_model, d_model)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
-        self.qk_norm = RMSNorm((self.n_heads, 1, 1))
+        self.qk_norm = QKNorm(self.n_heads)
         self.pos_emb = AxialRoPE(d_head, self.n_heads)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
 
