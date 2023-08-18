@@ -25,6 +25,9 @@ def main():
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
+    p.add_argument('--clip-model', type=str, default='ViT-B/16',
+                   choices=K.evaluation.CLIPFeatureExtractor.available_models(),
+                   help='the CLIP model to use to evaluate')
     p.add_argument('--compile', action='store_true',
                    help='compile the model')
     p.add_argument('--config', type=str, required=True,
@@ -33,6 +36,9 @@ def main():
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-every', type=int, default=10000,
                    help='save a demo grid every this many steps')
+    p.add_argument('--evaluate-with', type=str, default='inception',
+                   choices=['inception', 'clip'],
+                   help='the feature extractor to use for evaluation')
     p.add_argument('--evaluate-n', type=int, default=2000,
                    help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
@@ -243,7 +249,12 @@ def main():
 
     evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
     if evaluate_enabled:
-        extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
+        if args.evaluate_with == 'inception':
+            extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
+        elif args.evaluate_with == 'clip':
+            extractor = K.evaluation.CLIPFeatureExtractor(args.clip_model, device=device)
+        else:
+            raise ValueError('Invalid evaluation feature extractor')
         train_iter = iter(train_dl)
         if accelerator.is_main_process:
             print('Computing features for reals...')

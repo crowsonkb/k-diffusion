@@ -39,6 +39,10 @@ class CLIPFeatureExtractor(nn.Module):
                                               std=(0.26862954, 0.26130258, 0.27577711))
         self.size = (self.model.visual.input_resolution, self.model.visual.input_resolution)
 
+    @classmethod
+    def available_models(cls):
+        return clip.available_models()
+
     def forward(self, x):
         x = (x + 1) / 2
         x = F.interpolate(x, self.size, mode='bicubic', align_corners=False, antialias=True)
