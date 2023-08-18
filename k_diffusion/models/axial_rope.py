@@ -1,9 +1,33 @@
 import math
 
-from einops import rearrange
-from rotary_embedding_torch import apply_rotary_emb
 import torch
+import torch._dynamo
 from torch import nn
+
+torch._dynamo.config.suppress_errors = True
+
+
+def rotate_half(x):
+    x1, x2 = x[..., 0::2], x[..., 1::2]
+    x = torch.stack((-x2, x1), dim=-1)
+    *shape, d, r = x.shape
+    return x.view(*shape, d * r)
+
+
+def _apply_rotary_emb(freqs, t, start_index=0, scale=1.0):
+    freqs = freqs.to(t)
+    rot_dim = freqs.shape[-1]
+    end_index = start_index + rot_dim
+    assert rot_dim <= t.shape[-1], f"feature dimension {t.shape[-1]} is not of sufficient size to rotate in all the positions {rot_dim}"
+    t_left, t, t_right = t[..., :start_index], t[..., start_index:end_index], t[..., end_index:]
+    t = (t * freqs.cos() * scale) + (rotate_half(t) * freqs.sin() * scale)
+    return torch.cat((t_left, t, t_right), dim=-1)
+
+
+try:
+    apply_rotary_emb = torch.compile(_apply_rotary_emb)
+except RuntimeError:
+    apply_rotary_emb = _apply_rotary_emb
 
 
 def centers(start, stop, num, dtype=None, device=None):
@@ -13,7 +37,8 @@ def centers(start, stop, num, dtype=None, device=None):
 
 def make_grid(h_pos, w_pos):
     grid = torch.stack(torch.meshgrid(h_pos, w_pos, indexing='ij'), dim=-1)
-    return rearrange(grid, 'h w d -> (h w) d')
+    h, w, d = grid.shape
+    return grid.view(h * w, d)
 
 
 def bounding_box(h, w, pixel_aspect_ratio=1.0):

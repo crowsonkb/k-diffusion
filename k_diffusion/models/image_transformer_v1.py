@@ -1,5 +1,3 @@
-import warnings
-
 from einops import rearrange
 import torch
 from torch import nn
@@ -25,8 +23,9 @@ def _geglu(x):
 
 
 def _rms_norm(x, scale, eps):
-    mean_sq = torch.mean(x**2, dim=-1, keepdim=True)
-    scale = scale * torch.rsqrt(mean_sq + eps)
+    dtype = torch.promote_types(x.dtype, torch.float32)
+    mean_sq = torch.mean(x.to(dtype)**2, dim=-1, keepdim=True)
+    scale = scale.to(dtype) * torch.rsqrt(mean_sq + eps)
     return x * scale.to(x.dtype)
 
 
