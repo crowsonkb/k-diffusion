@@ -9,7 +9,6 @@
         "loss_config": "karras",
         "loss_weighting": "soft-min-snr",
         "dropout_rate": 0.05,
-        "augment_wrapper": false,
         "augment_prob": 0.12,
         "sigma_data": 0.6162,
         "sigma_min": 1e-2,
