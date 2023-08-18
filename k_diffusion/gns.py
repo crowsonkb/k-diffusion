@@ -17,11 +17,11 @@ class DDPGradientStatsHook:
     @staticmethod
     def _hook_fn(self, bucket):
         buf = bucket.buffer()
-        self.bucket_sq_norms_small_batch.append(buf.pow(2).sum())
+        self.bucket_sq_norms_small_batch.append(buf.pow(2).sum(dtype=torch.float32))
         fut = torch.distributed.all_reduce(buf, op=torch.distributed.ReduceOp.AVG, async_op=True).get_future()
         def callback(fut):
             buf = fut.value()[0]
-            self.bucket_sq_norms_large_batch.append(buf.pow(2).sum())
+            self.bucket_sq_norms_large_batch.append(buf.pow(2).sum(dtype=torch.float32))
             return buf
         return fut.then(callback)
 
