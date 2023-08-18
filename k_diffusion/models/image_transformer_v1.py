@@ -17,6 +17,21 @@ def zero_init(layer):
     return layer
 
 
+def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0):
+    # TODO: add an environment variable to force fallback to PyTorch attention
+    if attn_mask is None:
+        try:
+            from flash_attn import flash_attn_func
+            q_ = q.transpose(-3, -2)
+            k_ = k.transpose(-3, -2)
+            v_ = v.transpose(-3, -2)
+            o_ = flash_attn_func(q_, k_, v_, dropout_p=dropout_p)
+            return o_.transpose(-3, -2)
+        except (ImportError, RuntimeError):
+            pass
+    return F.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=dropout_p)
+
+
 def _geglu(x):
     a, b = x.chunk(2, dim=-1)
     return a * F.gelu(b)
@@ -107,7 +122,7 @@ class SelfAttentionBlock(nn.Module):
         v = rearrange(v, "n l (h e) -> n h l e", e=self.d_head)
         q = self.pos_emb(self.qk_norm(q), pos)
         k = self.pos_emb(self.qk_norm(k), pos)
-        x = F.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=self.dropout if self.training else 0.0)
+        x = scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=self.dropout if self.training else 0.0)
         x = rearrange(x, "n h l e -> n l (h e)")
         x = self.out_proj(x)
         x = F.dropout(x, p=self.dropout, training=self.training)
