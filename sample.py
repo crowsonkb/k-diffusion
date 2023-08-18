@@ -3,9 +3,10 @@
 """Samples from k-diffusion models."""
 
 import argparse
-import math
+from pathlib import Path
 
 import accelerate
+import safetensors.torch as safetorch
 import torch
 from tqdm import trange, tqdm
 
@@ -17,9 +18,9 @@ def main():
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
-    p.add_argument('--checkpoint', type=str, required=True,
+    p.add_argument('--checkpoint', type=Path, required=True,
                    help='the checkpoint to use')
-    p.add_argument('--config', type=str, required=True,
+    p.add_argument('--config', type=Path,
                    help='the model config')
     p.add_argument('-n', type=int, default=64,
                    help='the number of images to sample')
@@ -29,7 +30,7 @@ def main():
                    help='the number of denoising steps')
     args = p.parse_args()
 
-    config = K.config.load_config(open(args.config))
+    config = K.config.load_config(args.config if args.config else args.checkpoint)
     model_config = config['model']
     # TODO: allow non-square input sizes
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
@@ -40,7 +41,8 @@ def main():
     print('Using device:', device, flush=True)
 
     inner_model = K.config.make_model(config).eval().requires_grad_(False).to(device)
-    inner_model.load_state_dict(torch.load(args.checkpoint, map_location='cpu')['model_ema'])
+    inner_model.load_state_dict(safetorch.load_file(args.checkpoint))
+
     accelerator.print('Parameters:', K.utils.n_params(inner_model))
     model = K.Denoiser(inner_model, sigma_data=model_config['sigma_data'])
 

@@ -11,11 +11,11 @@ from pathlib import Path
 
 import accelerate
 import torch
-from torch import nn, optim
+from torch import optim
 from torch import multiprocessing as mp
 from torch.utils import data
 from torchvision import datasets, transforms, utils
-from tqdm.auto import trange, tqdm
+from tqdm.auto import tqdm
 
 import k_diffusion as K
 
@@ -25,6 +25,8 @@ def main():
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
+    p.add_argument('--compile', action='store_true',
+                   help='compile the model')
     p.add_argument('--config', type=str, required=True,
                    help='the configuration file')
     p.add_argument('--demo-every', type=int, default=500,
@@ -73,7 +75,7 @@ def main():
     mp.set_start_method(args.start_method)
     torch.backends.cuda.matmul.allow_tf32 = True
 
-    config = K.config.load_config(open(args.config))
+    config = K.config.load_config(args.config)
     model_config = config['model']
     dataset_config = config['dataset']
     opt_config = config['optimizer']
@@ -95,6 +97,11 @@ def main():
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
+
+    if args.compile:
+        inner_model.compile()
+        # inner_model_ema.compile()
+
     if accelerator.is_main_process:
         print('Parameters:', K.utils.n_params(inner_model))
 
@@ -107,14 +114,19 @@ def main():
         log_config['parameters'] = K.utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
+    if model_config['type'] == 'image_transformer_v1':
+        wd_params, no_wd_params = inner_model.wd_params()
+        groups = [{'params': wd_params}, {'params': no_wd_params, 'weight_decay': 0.}]
+    else:
+        groups = [{'params': inner_model.parameters()}]
     if opt_config['type'] == 'adamw':
-        opt = optim.AdamW(inner_model.parameters(),
+        opt = optim.AdamW(groups,
                           lr=opt_config['lr'] if args.lr is None else args.lr,
                           betas=tuple(opt_config['betas']),
                           eps=opt_config['eps'],
                           weight_decay=opt_config['weight_decay'])
     elif opt_config['type'] == 'sgd':
-        opt = optim.SGD(inner_model.parameters(),
+        opt = optim.SGD(groups,
                         lr=opt_config['lr'] if args.lr is None else args.lr,
                         momentum=opt_config.get('momentum', 0.),
                         nesterov=opt_config.get('nesterov', False),
@@ -142,9 +154,9 @@ def main():
                                   max_value=ema_sched_config['max_value'])
 
     tf = transforms.Compose([
-        transforms.Resize(size[0], interpolation=transforms.InterpolationMode.LANCZOS),
+        transforms.Resize(size[0], interpolation=transforms.InterpolationMode.BICUBIC),
         transforms.CenterCrop(size[0]),
-        K.augmentation.KarrasAugmentationPipeline(model_config['augment_prob']),
+        K.augmentation.KarrasAugmentationPipeline(model_config['augment_prob'], disable_all=model_config['augment_prob'] == 0),
     ])
 
     if dataset_config['type'] == 'imagefolder':
@@ -176,7 +188,7 @@ def main():
         if not args.grow_config:
             raise ValueError('--grow requires --grow-config')
         ckpt = torch.load(args.grow, map_location='cpu')
-        old_config = K.config.load_config(open(args.grow_config))
+        old_config = K.config.load_config(args.grow_config)
         old_inner_model = K.config.make_model(old_config)
         old_inner_model.load_state_dict(ckpt['model_ema'])
         if old_config['model']['skip_stages'] != model_config['skip_stages']:
@@ -189,6 +201,8 @@ def main():
     inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
     if use_wandb:
         wandb.watch(inner_model)
+    if accelerator.num_processes == 1:
+        args.gns = False
     if args.gns:
         gns_stats_hook = K.gns.DDPGradientStatsHook(inner_model)
         gns_stats = K.gns.GradientNoiseScale()
@@ -247,7 +261,7 @@ def main():
         n_per_proc = math.ceil(args.sample_n / accelerator.num_processes)
         x = torch.randn([n_per_proc, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
-        x_0 = K.sampling.sample_dpmpp_2m(model_ema, x, sigmas, disable=not accelerator.is_main_process)
+        x_0 = K.sampling.sample_dpmpp_2m_sde(model_ema, x, sigmas, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
         x_0 = accelerator.gather(x_0)[:args.sample_n]
         if accelerator.is_main_process:
             grid = utils.make_grid(x_0, nrow=math.ceil(args.sample_n ** 0.5), padding=0)
@@ -265,7 +279,7 @@ def main():
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
             x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
-            x_0 = K.sampling.sample_dpmpp_2m(model_ema, x, sigmas, disable=True)
+            x_0 = K.sampling.sample_dpmpp_2m_sde(model_ema, x, sigmas, eta=0.0, solver_type='heun', disable=True)
             return x_0
         fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
         if accelerator.is_main_process:
@@ -282,9 +296,12 @@ def main():
         filename = f'{args.name}_{step:08}.pth'
         if accelerator.is_main_process:
             tqdm.write(f'Saving to {filename}...')
+        inner_model = accelerator.unwrap_model(model.inner_model)
+        inner_model_ema = accelerator.unwrap_model(model_ema.inner_model)
         obj = {
-            'model': accelerator.unwrap_model(model.inner_model).state_dict(),
-            'model_ema': accelerator.unwrap_model(model_ema.inner_model).state_dict(),
+            'config': config,
+            'model': inner_model.state_dict(),
+            'model_ema': inner_model_ema.state_dict(),
             'opt': opt.state_dict(),
             'sched': sched.state_dict(),
             'ema_sched': ema_sched.state_dict(),

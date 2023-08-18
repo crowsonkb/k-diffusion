@@ -9,6 +9,7 @@ from . import sampling, utils
 
 # Karras et al. preconditioned denoiser
 
+
 class Denoiser(nn.Module):
     """A Karras et al. preconditioner for denoising diffusion models."""
 

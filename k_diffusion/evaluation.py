@@ -4,7 +4,6 @@ from pathlib import Path
 
 from cleanfid.inception_torchscript import InceptionV3W
 import clip
-from resize_right import resize
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -25,8 +24,7 @@ class InceptionV3FeatureExtractor(nn.Module):
         self.size = (299, 299)
 
     def forward(self, x):
-        if x.shape[2:4] != self.size:
-            x = resize(x, out_shape=self.size, pad_mode='reflect')
+        x = F.interpolate(x, self.size, mode='bicubic', align_corners=False, antialias=True)
         if x.shape[1] == 1:
             x = torch.cat([x] * 3, dim=1)
         x = (x * 127.5 + 127.5).clamp(0, 255)
@@ -42,8 +40,10 @@ class CLIPFeatureExtractor(nn.Module):
         self.size = (self.model.visual.input_resolution, self.model.visual.input_resolution)
 
     def forward(self, x):
-        if x.shape[2:4] != self.size:
-            x = resize(x.add(1).div(2), out_shape=self.size, pad_mode='reflect').clamp(0, 1)
+        x = (x + 1) / 2
+        x = F.interpolate(x, self.size, mode='bicubic', align_corners=False, antialias=True)
+        if x.shape[1] == 1:
+            x = torch.cat([x] * 3, dim=1)
         x = self.normalize(x)
         x = self.model.encode_image(x).float()
         x = F.normalize(x) * x.shape[1] ** 0.5

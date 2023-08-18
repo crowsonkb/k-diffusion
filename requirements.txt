@@ -5,10 +5,11 @@ einops
 jsonmerge
 kornia
 Pillow
-resize-right
+rotary-embedding-torch
+safetensors
 scikit-image
 scipy
-torch
+torch>=2.0
 torchdiffeq
 torchsde
 torchvision

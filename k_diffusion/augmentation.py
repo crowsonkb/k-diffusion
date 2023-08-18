@@ -30,11 +30,12 @@ def rotate2d(theta):
 
 
 class KarrasAugmentationPipeline:
-    def __init__(self, a_prob=0.12, a_scale=2**0.2, a_aniso=2**0.2, a_trans=1/8):
+    def __init__(self, a_prob=0.12, a_scale=2**0.2, a_aniso=2**0.2, a_trans=1/8, disable_all=False):
         self.a_prob = a_prob
         self.a_scale = a_scale
         self.a_aniso = a_aniso
         self.a_trans = a_trans
+        self.disable_all = disable_all
 
     def __call__(self, image):
         h, w = image.size
@@ -78,7 +79,11 @@ class KarrasAugmentationPipeline:
         if image_orig.ndim == 2:
             image_orig = image_orig[..., None]
         tf = transform.AffineTransform(mat.numpy())
-        image = transform.warp(image_orig, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
+        if not self.disable_all:
+            image = transform.warp(image_orig, tf.inverse, order=3, mode='reflect', cval=0.5, clip=False, preserve_range=True)
+        else:
+            image = image_orig
+            cond = torch.zeros_like(cond)
         image_orig = torch.as_tensor(image_orig).movedim(2, 0) * 2 - 1
         image = torch.as_tensor(image).movedim(2, 0) * 2 - 1
         return image, image_orig, cond

@@ -1,31 +1,36 @@
 from functools import partial
 import json
 import math
-import warnings
+from pathlib import Path
 
 from jsonmerge import merge
 
 from . import augmentation, layers, models, utils
 
 
-def load_config(file):
-    defaults = {
+def round_to_power_of_two(x, tol):
+    approxs = []
+    for i in range(math.ceil(math.log2(x))):
+        mult = 2**i
+        approxs.append(round(x / mult) * mult)
+    for approx in reversed(approxs):
+        error = abs((approx - x) / x)
+        if error <= tol:
+            return approx
+    return approxs[0]
+
+
+def load_config(path_or_dict):
+    defaults_image_v1 = {
         'model': {
-            'sigma_data': 1.,
             'patch_size': 1,
-            'dropout_rate': 0.,
             'augment_wrapper': True,
-            'augment_prob': 0.,
             'mapping_cond_dim': 0,
             'unet_cond_dim': 0,
             'cross_cond_dim': 0,
             'cross_attn_depths': None,
             'skip_stages': 0,
             'has_variance': False,
-            'loss_config': 'karras',
-        },
-        'dataset': {
-            'type': 'imagefolder',
         },
         'optimizer': {
             'type': 'adamw',
@@ -33,6 +38,40 @@ def load_config(file):
             'betas': [0.95, 0.999],
             'eps': 1e-6,
             'weight_decay': 1e-3,
+        },
+    }
+    defaults_image_transformer_v1 = {
+        'model': {
+            'd_ff': 0,
+            'augment_wrapper': False,
+            'skip_stages': 0,
+            'has_variance': False,
+        },
+        'optimizer': {
+            'type': 'adamw',
+            'lr': 5e-4,
+            'betas': [0.9, 0.99],
+            'eps': 1e-8,
+            'weight_decay': 1e-4,
+        },
+    }
+    defaults = {
+        'model': {
+            'sigma_data': 1.,
+            'dropout_rate': 0.,
+            'augment_prob': 0.,
+            'loss_config': 'karras',
+            'loss_weighting': 'karras',
+        },
+        'dataset': {
+            'type': 'imagefolder',
+        },
+        'optimizer': {
+            'type': 'adamw',
+            'lr': 1e-4,
+            'betas': [0.9, 0.999],
+            'eps': 1e-8,
+            'weight_decay': 1e-4,
         },
         'lr_sched': {
             'type': 'constant',
@@ -43,30 +82,56 @@ def load_config(file):
             'max_value': 0.9999
         },
     }
-    config = json.load(file)
+    if not isinstance(path_or_dict, dict):
+        file = Path(path_or_dict)
+        if file.suffix == '.safetensors':
+            metadata = utils.get_safetensors_metadata(file)
+            config = json.loads(metadata['config'])
+        else:
+            config = json.loads(file.read_text())
+    else:
+        config = path_or_dict
+    if config['model']['type'] == 'image_v1':
+        config = merge(defaults_image_v1, config)
+    elif config['model']['type'] == 'image_transformer_v1':
+        config = merge(defaults_image_transformer_v1, config)
+        if not config['model']['d_ff']:
+            config['model']['d_ff'] = round_to_power_of_two(config['model']['width'] * 8 / 3, tol=0.05)
     return merge(defaults, config)
 
 
 def make_model(config):
     config = config['model']
-    assert config['type'] == 'image_v1'
-    model = models.ImageDenoiserModelV1(
-        config['input_channels'],
-        config['mapping_out'],
-        config['depths'],
-        config['channels'],
-        config['self_attn_depths'],
-        config['cross_attn_depths'],
-        patch_size=config['patch_size'],
-        dropout_rate=config['dropout_rate'],
-        mapping_cond_dim=config['mapping_cond_dim'] + (9 if config['augment_wrapper'] else 0),
-        unet_cond_dim=config['unet_cond_dim'],
-        cross_cond_dim=config['cross_cond_dim'],
-        skip_stages=config['skip_stages'],
-        has_variance=config['has_variance'],
-    )
-    if config['augment_wrapper']:
-        model = augmentation.KarrasAugmentWrapper(model)
+    if config['type'] == 'image_v1':
+        model = models.ImageDenoiserModelV1(
+            config['input_channels'],
+            config['mapping_out'],
+            config['depths'],
+            config['channels'],
+            config['self_attn_depths'],
+            config['cross_attn_depths'],
+            patch_size=config['patch_size'],
+            dropout_rate=config['dropout_rate'],
+            mapping_cond_dim=config['mapping_cond_dim'] + (9 if config['augment_wrapper'] else 0),
+            unet_cond_dim=config['unet_cond_dim'],
+            cross_cond_dim=config['cross_cond_dim'],
+            skip_stages=config['skip_stages'],
+            has_variance=config['has_variance'],
+        )
+        if config['augment_wrapper']:
+            model = augmentation.KarrasAugmentWrapper(model)
+    elif config['type'] == 'image_transformer_v1':
+        model = models.ImageTransformerDenoiserModelV1(
+            n_layers=config['depth'],
+            d_model=config['width'],
+            d_ff=config['d_ff'],
+            in_features=config['input_channels'],
+            out_features=config['input_channels'],
+            patch_size=config['patch_size'],
+            dropout=config['dropout_rate'],
+        )
+    else:
+        raise ValueError(f'unsupported model type {config["type"]}')
     return model
 
 
