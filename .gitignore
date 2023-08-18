@@ -8,3 +8,4 @@ data
 wandb/*
 *.csv
 .env
+*.safetensors
