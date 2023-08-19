@@ -11,6 +11,7 @@ from pathlib import Path
 
 import accelerate
 import torch
+import torch._dynamo
 from torch import optim
 from torch import multiprocessing as mp
 from torch.utils import data
@@ -80,6 +81,7 @@ def main():
 
     mp.set_start_method(args.start_method)
     torch.backends.cuda.matmul.allow_tf32 = True
+    torch._dynamo.config.automatic_dynamic_shapes = False
 
     config = K.config.load_config(args.config)
     model_config = config['model']
