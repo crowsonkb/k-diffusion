@@ -210,7 +210,7 @@ class MappingNetwork(nn.Module):
     def __init__(self, in_features, out_features, dropout=0.0):
         super().__init__()
         self.dropout = dropout
-        self.act = nn.GELU()
+        self.act = nn.SiLU()
         self.linear_1 = nn.Linear(in_features, out_features, bias=False)
 
     def forward(self, x):
@@ -223,8 +223,9 @@ class MappingNetwork(nn.Module):
 
 
 class ImageTransformerDenoiserModelV1(nn.Module):
-    def __init__(self, n_layers, d_model, d_ff, in_features, out_features, patch_size, dropout=0.0):
+    def __init__(self, n_layers, d_model, d_ff, in_features, out_features, patch_size, dropout=0.0, sigma_data=1.0):
         super().__init__()
+        self.sigma_data = sigma_data
         self.patch_in = Patching(in_features, patch_size)
         self.patch_out = Unpatching(out_features, patch_size)
 
@@ -260,7 +261,7 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         x = self.in_proj(x)
 
         # Mapping network
-        c_noise = sigma.log() / 4
+        c_noise = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
         time_emb = self.time_in_proj(self.time_emb(c_noise[..., None]))
         aug_cond = x.new_zeros([x.shape[0], 9]) if aug_cond is None else aug_cond
         aug_emb = self.aug_in_proj(aug_cond)

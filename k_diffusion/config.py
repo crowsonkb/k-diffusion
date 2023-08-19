@@ -129,6 +129,7 @@ def make_model(config):
             out_features=config['input_channels'],
             patch_size=config['patch_size'],
             dropout=config['dropout_rate'],
+            sigma_data=config['sigma_data'],
         )
     else:
         raise ValueError(f'unsupported model type {config["type"]}')
