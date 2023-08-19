@@ -324,6 +324,8 @@ def main():
         if args.wandb_save_model and use_wandb:
             wandb.save(filename)
 
+    losses_since_last_print = []
+
     try:
         while True:
             for batch in tqdm(train_dl, disable=not accelerator.is_main_process):
@@ -332,8 +334,8 @@ def main():
                     noise = torch.randn_like(reals)
                     sigma = sample_density([reals.shape[0]], device=device)
                     losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
-                    losses_all = accelerator.gather(losses)
-                    loss = losses_all.mean()
+                    loss = accelerator.gather(losses).mean().item()
+                    losses_since_last_print.append(loss)
                     accelerator.backward(losses.mean())
                     if args.gns:
                         sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
@@ -346,17 +348,19 @@ def main():
                         K.utils.ema_update(model, model_ema, ema_decay)
                         ema_sched.step()
 
-                if accelerator.is_main_process:
-                    if step % 25 == 0:
+                if step % 25 == 0:
+                    loss_avg = sum(losses_since_last_print) / len(losses_since_last_print)
+                    losses_since_last_print.clear()
+                    if accelerator.is_main_process:
                         if args.gns:
-                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}, gns: {gns_stats.get_gns():g}')
+                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_avg:g}, gns: {gns_stats.get_gns():g}')
                         else:
-                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss.item():g}')
+                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_avg:g}')
 
                 if use_wandb:
                     log_dict = {
                         'epoch': epoch,
-                        'loss': loss.item(),
+                        'loss': loss,
                         'lr': sched.get_last_lr()[0],
                         'ema_decay': ema_decay,
                     }
