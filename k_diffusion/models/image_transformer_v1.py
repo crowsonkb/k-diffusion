@@ -101,7 +101,7 @@ class AdaRMSNorm(nn.Module):
     def __init__(self, features, cond_features, eps=1e-6):
         super().__init__()
         self.eps = eps
-        self.linear = nn.Linear(cond_features, features, bias=False)
+        self.linear = zero_init(nn.Linear(cond_features, features, bias=False))
 
     def extra_repr(self):
         return f"eps={self.eps},"
