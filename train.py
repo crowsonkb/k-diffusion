@@ -155,6 +155,7 @@ def main():
     assert ema_sched_config['type'] == 'inverse'
     ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
                                   max_value=ema_sched_config['max_value'])
+    ema_stats = {}
 
     tf = transforms.Compose([
         transforms.Resize(size[0], interpolation=transforms.InterpolationMode.BICUBIC),
@@ -234,6 +235,7 @@ def main():
         opt.load_state_dict(ckpt['opt'])
         sched.load_state_dict(ckpt['sched'])
         ema_sched.load_state_dict(ckpt['ema_sched'])
+        ema_stats = ckpt.get('ema_stats', ema_stats)
         epoch = ckpt['epoch'] + 1
         step = ckpt['step'] + 1
         if args.gns and ckpt.get('gns_stats', None) is not None:
@@ -316,6 +318,7 @@ def main():
             'epoch': epoch,
             'step': step,
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
+            'ema_stats': ema_stats,
         }
         accelerator.save(obj, filename)
         if accelerator.is_main_process:
@@ -343,19 +346,22 @@ def main():
                     opt.step()
                     sched.step()
                     opt.zero_grad()
+
+                    ema_decay = ema_sched.get_value()
+                    K.utils.ema_update_dict(ema_stats, {'loss': loss}, ema_decay ** (1 / args.grad_accum_steps))
                     if accelerator.sync_gradients:
-                        ema_decay = ema_sched.get_value()
                         K.utils.ema_update(model, model_ema, ema_decay)
                         ema_sched.step()
 
                 if step % 25 == 0:
-                    loss_avg = sum(losses_since_last_print) / len(losses_since_last_print)
+                    loss_disp = sum(losses_since_last_print) / len(losses_since_last_print)
                     losses_since_last_print.clear()
+                    avg_loss = ema_stats['loss']
                     if accelerator.is_main_process:
                         if args.gns:
-                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_avg:g}, gns: {gns_stats.get_gns():g}')
+                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}, gns: {gns_stats.get_gns():g}')
                         else:
-                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_avg:g}')
+                            tqdm.write(f'Epoch: {epoch}, step: {step}, loss: {loss_disp:g}, avg loss: {avg_loss:g}')
 
                 if use_wandb:
                     log_dict = {
