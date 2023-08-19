@@ -120,11 +120,8 @@ def main():
         log_config['parameters'] = K.utils.n_params(inner_model)
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
-    if model_config['type'] == 'image_transformer_v1':
-        wd_params, no_wd_params = inner_model.wd_params()
-        groups = [{'params': wd_params}, {'params': no_wd_params, 'weight_decay': 0.}]
-    else:
-        groups = [{'params': inner_model.parameters()}]
+    wd_params, no_wd_params = inner_model.wd_params()
+    groups = [{'params': wd_params}, {'params': no_wd_params, 'weight_decay': 0.}]
     if opt_config['type'] == 'adamw':
         opt = optim.AdamW(groups,
                           lr=opt_config['lr'] if args.lr is None else args.lr,

@@ -25,6 +25,8 @@ class ResConvBlock(layers.ConditionedResidualBlock):
             nn.Conv2d(c_mid, c_out, 3, padding=1),
             nn.Dropout2d(dropout_rate, inplace=True),
             skip=skip)
+        nn.init.zeros_(self.main[-2].weight)
+        nn.init.zeros_(self.main[-2].bias)
 
 
 class DBlock(layers.ConditionedSequential):
@@ -111,6 +113,20 @@ class ImageDenoiserModelV1(nn.Module):
             my_c_out = channels[max(0, i - 1)]
             u_blocks.append(UBlock(depths[i], feats_in, my_c_in, channels[i], my_c_out, upsample=i > skip_stages, self_attn=self_attn_depths[i], cross_attn=cross_attn_depths[i], c_enc=cross_cond_dim, dropout_rate=dropout_rate))
         self.u_net = layers.UNet(d_blocks, reversed(u_blocks), skip_stages=skip_stages)
+
+    def wd_params(self):
+        wd_names = []
+        for name, _ in self.named_parameters():
+            if name.startswith("mapping") or name.startswith("u_net"):
+                if name.endswith(".weight"):
+                    wd_names.append(name)
+        wd, no_wd = [], []
+        for name, param in self.named_parameters():
+            if name in wd_names:
+                wd.append(param)
+            else:
+                no_wd.append(param)
+        return wd, no_wd
 
     def forward(self, input, sigma, mapping_cond=None, unet_cond=None, cross_cond=None, cross_cond_padding=None, return_variance=False):
         c_noise = sigma.log() / 4

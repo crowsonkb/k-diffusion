@@ -133,6 +133,7 @@ class AdaGN(ConditionedModule):
 
 # Attention
 
+
 class SelfAttention2d(ConditionedModule):
     def __init__(self, c_in, n_head, norm, dropout_rate=0.):
         super().__init__()
@@ -142,6 +143,8 @@ class SelfAttention2d(ConditionedModule):
         self.qkv_proj = nn.Conv2d(c_in, c_in * 3, 1)
         self.out_proj = nn.Conv2d(c_in, c_in, 1)
         self.dropout = nn.Dropout(dropout_rate)
+        nn.init.zeros_(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, input, cond):
         n, c, h, w = input.shape
