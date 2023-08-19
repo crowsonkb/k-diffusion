@@ -124,6 +124,8 @@ class AdaGN(ConditionedModule):
         self.eps = eps
         self.cond_key = cond_key
         self.mapper = nn.Linear(feats_in, c_out * 2)
+        nn.init.zeros_(self.mapper.weight)
+        nn.init.zeros_(self.mapper.bias)
 
     def forward(self, input, cond):
         weight, bias = self.mapper(cond[self.cond_key]).chunk(2, dim=-1)
