@@ -172,6 +172,8 @@ class CrossAttention2d(ConditionedModule):
         self.kv_proj = nn.Linear(c_enc, c_dec * 2)
         self.out_proj = nn.Conv2d(c_dec, c_dec, 1)
         self.dropout = nn.Dropout(dropout_rate)
+        nn.init.zeros_(self.out_proj.weight)
+        nn.init.zeros_(self.out_proj.bias)
 
     def forward(self, input, cond):
         n, c, h, w = input.shape
