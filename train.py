@@ -81,7 +81,10 @@ def main():
 
     mp.set_start_method(args.start_method)
     torch.backends.cuda.matmul.allow_tf32 = True
-    torch._dynamo.config.automatic_dynamic_shapes = False
+    try:
+        torch._dynamo.config.automatic_dynamic_shapes = False
+    except AttributeError:
+        pass
 
     config = K.config.load_config(args.config)
     model_config = config['model']
