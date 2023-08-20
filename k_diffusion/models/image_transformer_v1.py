@@ -21,6 +21,14 @@ def zero_init(layer):
     return layer
 
 
+def checkpoint_helper(function, *args, enable=False, **kwargs):
+    if enable:
+        kwargs.setdefault("use_reentrant", True)
+        return torch.utils.checkpoint.checkpoint(function, *args, **kwargs)
+    else:
+        return function(*args, **kwargs)
+
+
 def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0):
     # TODO: add an environment variable to force fallback to PyTorch attention
     if attn_mask is None:
@@ -161,10 +169,12 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.attn = SelfAttentionBlock(d_model, d_head, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, dropout=dropout)
+        self.checkpointing = False
 
     def forward(self, x, pos, attn_mask, cond):
-        x = x + self.attn(x, pos, attn_mask, cond)
-        x = x + self.ff(x, cond)
+        enable = self.checkpointing and self.training
+        x = x + checkpoint_helper(self.attn, x, pos, attn_mask, cond, enable=enable)
+        x = x + checkpoint_helper(self.ff, x, cond, enable=enable)
         return x
 
 
@@ -238,6 +248,15 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         self.blocks = nn.ModuleList([TransformerBlock(d_model, d_ff, 64, dropout=dropout) for _ in range(n_layers)])
         self.out_norm = RMSNorm((d_model,))
         self.out_proj = zero_init(nn.Linear(d_model, self.patch_out.d_in, bias=False))
+
+    @property
+    def checkpointing(self):
+        return all(block.checkpointing for block in self.blocks)
+
+    @checkpointing.setter
+    def checkpointing(self, value):
+        for block in self.blocks:
+            block.checkpointing = value
 
     def wd_params(self):
         wd_names = []

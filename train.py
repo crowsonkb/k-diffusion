@@ -26,6 +26,8 @@ def main():
                                 formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     p.add_argument('--batch-size', type=int, default=64,
                    help='the batch size')
+    p.add_argument('--checkpointing', action='store_true',
+                   help='enable gradient checkpointing')
     p.add_argument('--clip-model', type=str, default='ViT-B/16',
                    choices=K.evaluation.CLIPFeatureExtractor.available_models(),
                    help='the CLIP model to use to evaluate')
@@ -108,6 +110,8 @@ def main():
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
+    if args.checkpointing:
+        inner_model.checkpointing = True
 
     if args.compile:
         inner_model.compile()
