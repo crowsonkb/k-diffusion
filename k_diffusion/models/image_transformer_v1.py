@@ -261,7 +261,7 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         x = self.in_proj(x)
 
         # Mapping network
-        c_noise = self.sigma_data**2 / (sigma**2 + self.sigma_data**2)
+        c_noise = sigma / (sigma + self.sigma_data)
         time_emb = self.time_in_proj(self.time_emb(c_noise[..., None]))
         aug_cond = x.new_zeros([x.shape[0], 9]) if aug_cond is None else aug_cond
         aug_emb = self.aug_in_proj(aug_cond)
