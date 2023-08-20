@@ -75,6 +75,7 @@ def load_config(path_or_dict):
         },
         'lr_sched': {
             'type': 'constant',
+            'warmup': 0.,
         },
         'ema_sched': {
             'type': 'inverse',

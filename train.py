@@ -157,7 +157,7 @@ def main():
                                       decay=sched_config['decay'],
                                       warmup=sched_config['warmup'])
     elif sched_config['type'] == 'constant':
-        sched = optim.lr_scheduler.LambdaLR(opt, lambda _: 1.0)
+        sched = K.utils.ConstantLRWithWarmup(opt, warmup=sched_config['warmup'])
     else:
         raise ValueError('Invalid schedule type')
 

@@ -232,6 +232,36 @@ class ExponentialLR(optim.lr_scheduler._LRScheduler):
                 for base_lr in self.base_lrs]
 
 
+class ConstantLRWithWarmup(optim.lr_scheduler._LRScheduler):
+    """Implements a constant learning rate schedule with an optional exponential
+    warmup. When last_epoch=-1, sets initial lr as lr.
+    Args:
+        optimizer (Optimizer): Wrapped optimizer.
+        warmup (float): Exponential warmup factor (0 <= warmup < 1, 0 to disable)
+            Default: 0.
+        last_epoch (int): The index of last epoch. Default: -1.
+        verbose (bool): If ``True``, prints a message to stdout for
+            each update. Default: ``False``.
+    """
+
+    def __init__(self, optimizer, warmup=0., last_epoch=-1, verbose=False):
+        if not 0. <= warmup < 1:
+            raise ValueError('Invalid value for warmup')
+        self.warmup = warmup
+        super().__init__(optimizer, last_epoch, verbose)
+
+    def get_lr(self):
+        if not self._get_lr_called_within_step:
+            warnings.warn("To get the last learning rate computed by the scheduler, "
+                          "please use `get_last_lr()`.")
+
+        return self._get_closed_form_lr()
+
+    def _get_closed_form_lr(self):
+        warmup = 1 - self.warmup ** (self.last_epoch + 1)
+        return [warmup * base_lr for base_lr in self.base_lrs]
+
+
 def rand_log_normal(shape, loc=0., scale=1., device='cpu', dtype=torch.float32):
     """Draws samples from an lognormal distribution."""
     return (torch.randn(shape, device=device, dtype=dtype) * scale + loc).exp()
