@@ -333,3 +333,13 @@ def tf32_mode(cudnn=None, matmul=None):
 def get_safetensors_metadata(path):
     """Retrieves the metadata from a safetensors file."""
     return safetensors.safe_open(path, "pt").metadata()
+
+
+def ema_update_dict(values, updates, decay):
+    for k, v in updates.items():
+        if k not in values:
+            values[k] = v
+        else:
+            values[k] *= decay
+            values[k] += (1 - decay) * v
+    return values
