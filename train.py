@@ -12,13 +12,19 @@ from pathlib import Path
 import accelerate
 import torch
 import torch._dynamo
-from torch import optim
+from torch import distributed as dist
 from torch import multiprocessing as mp
+from torch import optim
 from torch.utils import data
 from torchvision import datasets, transforms, utils
 from tqdm.auto import tqdm
 
 import k_diffusion as K
+
+
+def ensure_distributed():
+    if not dist.is_initialized():
+        dist.init_process_group(world_size=1, rank=0, store=dist.HashStore())
 
 
 def main():
@@ -101,12 +107,14 @@ def main():
 
     ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=model_config['skip_stages'] > 0)
     accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps, mixed_precision=args.mixed_precision)
+    ensure_distributed()
     device = accelerator.device
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
 
     if args.seed is not None:
         seeds = torch.randint(-2 ** 63, 2 ** 63 - 1, [accelerator.num_processes], generator=torch.Generator().manual_seed(args.seed))
         torch.manual_seed(seeds[accelerator.process_index])
+    demo_gen = torch.Generator().manual_seed(torch.randint(-2 ** 63, 2 ** 63 - 1, ()).item())
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
@@ -249,6 +257,7 @@ def main():
         step = ckpt['step'] + 1
         if args.gns and ckpt.get('gns_stats', None) is not None:
             gns_stats.load_state_dict(ckpt['gns_stats'])
+        demo_gen.set_state(ckpt['demo_gen'])
 
         del ckpt
     else:
@@ -278,7 +287,9 @@ def main():
             tqdm.write('Sampling...')
         filename = f'{args.name}_demo_{step:08}.png'
         n_per_proc = math.ceil(args.sample_n / accelerator.num_processes)
-        x = torch.randn([n_per_proc, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
+        x = torch.randn([accelerator.num_processes, n_per_proc, model_config['input_channels'], size[0], size[1]], generator=demo_gen).to(device)
+        dist.broadcast(x, 0)
+        x = x[accelerator.process_index] * sigma_max
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         x_0 = K.sampling.sample_dpmpp_2m_sde(model_ema, x, sigmas, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
         x_0 = accelerator.gather(x_0)[:args.sample_n]
@@ -328,6 +339,7 @@ def main():
             'step': step,
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
             'ema_stats': ema_stats,
+            'demo_gen': demo_gen.get_state(),
         }
         accelerator.save(obj, filename)
         if accelerator.is_main_process:
