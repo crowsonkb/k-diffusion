@@ -118,41 +118,21 @@ class AdaRMSNorm(nn.Module):
         return rms_norm(x, self.linear(cond) + 1, self.eps)
 
 
-class ReplaceOut(nn.Module):
-    def __init__(self, param_shape, p):
-        super().__init__()
-        self.p = p
-        self.replace = nn.Parameter(torch.zeros(param_shape), requires_grad=p > 0.0)
-
-    def extra_repr(self):
-        return f"p={self.p}"
-
-    def forward(self, x):
-        if self.p == 0.0:
-            return x
-        if not self.training:
-            return x.lerp_(self.replace.to(x.dtype), self.p)
-        keep = torch.empty_like(x, dtype=torch.bool).bernoulli_(1 - self.p)
-        return torch.where(keep, x, self.replace.to(x.dtype))
-
-
 class FeedForwardBlock(nn.Module):
     def __init__(self, d_model, d_ff, dropout=0.0):
         super().__init__()
         self.norm = AdaRMSNorm(d_model, d_model)
         self.up_proj = nn.Linear(d_model, d_ff * 2, bias=False)
         self.act = GEGLU()
-        self.dropout_1 = ReplaceOut(d_ff, p=dropout)
+        self.dropout = nn.Dropout(dropout, inplace=True)
         self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
-        self.dropout_2 = ReplaceOut(d_model, p=dropout)
 
     def forward(self, x, cond):
         x = self.norm(x, cond)
         x = self.up_proj(x)
         x = self.act(x)
-        x = self.dropout_1(x)
+        x = self.dropout(x)
         x = self.down_proj(x)
-        x = self.dropout_2(x)
         return x
 
 
@@ -161,12 +141,15 @@ class SelfAttentionBlock(nn.Module):
         super().__init__()
         self.d_head = d_head
         self.n_heads = d_model // d_head
+        self.attn_dropout = dropout
         self.norm = AdaRMSNorm(d_model, d_model)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.qk_norm = QKNorm(self.n_heads)
         self.pos_emb = AxialRoPE(d_head, self.n_heads)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
-        self.dropout = ReplaceOut(d_model, p=dropout)
+
+    def extra_repr(self):
+        return f"d_head={self.d_head}, dropout={self.attn_dropout},"
 
     def forward(self, x, pos, attn_mask, cond):
         x = self.norm(x, cond)
@@ -176,10 +159,9 @@ class SelfAttentionBlock(nn.Module):
         v = rearrange(v, "n l (h e) -> n h l e", e=self.d_head)
         q = self.pos_emb(self.qk_norm(q), pos)
         k = self.pos_emb(self.qk_norm(k), pos)
-        x = scaled_dot_product_attention(q, k, v, attn_mask)
+        x = scaled_dot_product_attention(q, k, v, attn_mask, self.attn_dropout if self.training else 0.0)
         x = rearrange(x, "n h l e -> n l (h e)")
         x = self.out_proj(x)
-        x = self.dropout(x)
         return x
 
 
