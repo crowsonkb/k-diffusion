@@ -128,10 +128,11 @@ class ReplaceOut(nn.Module):
         return f"p={self.p}"
 
     def forward(self, x):
+        replace = self.replace.to(x.dtype)
         if self.p == 0.0 or not self.training:
-            return x * (1 - self.p) + self.replace * self.p
-        keep = torch.rand_like(x) > self.p
-        return torch.where(keep, x, self.replace)
+            return x.lerp_(replace, self.p)
+        keep = torch.empty_like(x, dtype=torch.bool).bernoulli_(1 - self.p)
+        return torch.where(keep, x, replace)
 
 
 class FeedForwardBlock(nn.Module):
