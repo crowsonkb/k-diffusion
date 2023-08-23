@@ -122,17 +122,18 @@ class ReplaceOut(nn.Module):
     def __init__(self, param_shape, p):
         super().__init__()
         self.p = p
-        self.replace = nn.Parameter(torch.zeros(param_shape))
+        self.replace = nn.Parameter(torch.zeros(param_shape), requires_grad=p > 0.0)
 
     def extra_repr(self):
         return f"p={self.p}"
 
     def forward(self, x):
-        replace = self.replace.to(x.dtype)
-        if self.p == 0.0 or not self.training:
-            return x.lerp_(replace, self.p)
+        if self.p == 0.0:
+            return x
+        if not self.training:
+            return x.lerp_(self.replace.to(x.dtype), self.p)
         keep = torch.empty_like(x, dtype=torch.bool).bernoulli_(1 - self.p)
-        return torch.where(keep, x, replace)
+        return torch.where(keep, x, self.replace.to(x.dtype))
 
 
 class FeedForwardBlock(nn.Module):
