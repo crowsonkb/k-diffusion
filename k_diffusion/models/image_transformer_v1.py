@@ -238,13 +238,12 @@ class Unpatching(nn.Module):
 class MappingNetwork(nn.Module):
     def __init__(self, in_features, out_features):
         super().__init__()
-        self.bias = nn.Parameter(torch.randn(in_features) / in_features ** 0.5)
+        self.norm = RMSNorm(in_features)
         self.act = nn.GELU()
         self.linear_1 = nn.Linear(in_features, out_features, bias=False)
 
     def forward(self, x):
-        x = x + self.bias
-        x = F.layer_norm(x, x.shape[-1:])
+        x = self.norm(x)
         x = self.act(x)
         x = self.linear_1(x)
         x = self.act(x)
