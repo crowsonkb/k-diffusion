@@ -118,22 +118,39 @@ class AdaRMSNorm(nn.Module):
         return rms_norm(x, self.linear(cond) + 1, self.eps)
 
 
+class ReplaceOut(nn.Module):
+    def __init__(self, param_shape, p):
+        super().__init__()
+        self.p = p
+        self.replace = nn.Parameter(torch.zeros(param_shape))
+
+    def extra_repr(self):
+        return f"p={self.p}"
+
+    def forward(self, x):
+        if self.p == 0.0 or not self.training:
+            return x * (1 - self.p) + self.replace * self.p
+        keep = torch.rand_like(x) > self.p
+        return torch.where(keep, x, self.replace)
+
+
 class FeedForwardBlock(nn.Module):
     def __init__(self, d_model, d_ff, dropout=0.0):
         super().__init__()
-        self.dropout = dropout
         self.norm = AdaRMSNorm(d_model, d_model)
-        self.act = GEGLU()
         self.up_proj = nn.Linear(d_model, d_ff * 2, bias=False)
+        self.act = GEGLU()
+        self.dropout_1 = ReplaceOut(d_ff, p=dropout)
         self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
+        self.dropout_2 = ReplaceOut(d_model, p=dropout)
 
     def forward(self, x, cond):
         x = self.norm(x, cond)
         x = self.up_proj(x)
         x = self.act(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.dropout_1(x)
         x = self.down_proj(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.dropout_2(x)
         return x
 
 
@@ -142,12 +159,12 @@ class SelfAttentionBlock(nn.Module):
         super().__init__()
         self.d_head = d_head
         self.n_heads = d_model // d_head
-        self.dropout = dropout
         self.norm = AdaRMSNorm(d_model, d_model)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.qk_norm = QKNorm(self.n_heads)
         self.pos_emb = AxialRoPE(d_head, self.n_heads)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
+        self.dropout = ReplaceOut(d_model, p=dropout)
 
     def forward(self, x, pos, attn_mask, cond):
         x = self.norm(x, cond)
@@ -157,23 +174,23 @@ class SelfAttentionBlock(nn.Module):
         v = rearrange(v, "n l (h e) -> n h l e", e=self.d_head)
         q = self.pos_emb(self.qk_norm(q), pos)
         k = self.pos_emb(self.qk_norm(k), pos)
-        x = scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=self.dropout if self.training else 0.0)
+        x = scaled_dot_product_attention(q, k, v, attn_mask)
         x = rearrange(x, "n h l e -> n l (h e)")
         x = self.out_proj(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
+        x = self.dropout(x)
         return x
 
 
 class TransformerBlock(nn.Module):
     def __init__(self, d_model, d_ff, d_head, dropout=0.0):
         super().__init__()
-        self.attn = SelfAttentionBlock(d_model, d_head, dropout=dropout)
+        self.self_attn = SelfAttentionBlock(d_model, d_head, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, dropout=dropout)
         self.checkpointing = False
 
     def forward(self, x, pos, attn_mask, cond):
         enable = self.checkpointing and self.training
-        x = x + checkpoint_helper(self.attn, x, pos, attn_mask, cond, enable=enable)
+        x = x + checkpoint_helper(self.self_attn, x, pos, attn_mask, cond, enable=enable)
         x = x + checkpoint_helper(self.ff, x, cond, enable=enable)
         return x
 
@@ -217,18 +234,18 @@ class Unpatching(nn.Module):
 
 
 class MappingNetwork(nn.Module):
-    def __init__(self, in_features, out_features, dropout=0.0):
+    def __init__(self, in_features, out_features):
         super().__init__()
-        self.dropout = dropout
-        self.act = nn.SiLU()
+        self.bias = nn.Parameter(torch.randn(in_features) / in_features ** 0.5)
+        self.act = nn.GELU()
         self.linear_1 = nn.Linear(in_features, out_features, bias=False)
 
     def forward(self, x):
+        x = x + self.bias
+        x = F.layer_norm(x, x.shape[-1:])
         x = self.act(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
         x = self.linear_1(x)
         x = self.act(x)
-        x = F.dropout(x, p=self.dropout, training=self.training)
         return x
 
 
@@ -241,12 +258,13 @@ class ImageTransformerDenoiserModelV1(nn.Module):
 
         self.time_emb = layers.FourierFeatures(1, d_model)
         self.time_in_proj = nn.Linear(d_model, d_model, bias=False)
-        self.aug_in_proj = nn.Linear(9, d_model, bias=False)
-        self.mapping = MappingNetwork(d_model, d_model, dropout=dropout)
+        self.aug_emb = layers.FourierFeatures(9, d_model)
+        self.aug_in_proj = nn.Linear(d_model, d_model, bias=False)
+        self.mapping = MappingNetwork(d_model, d_model)
 
         self.in_proj = nn.Linear(self.patch_in.d_out, d_model, bias=False)
         self.blocks = nn.ModuleList([TransformerBlock(d_model, d_ff, 64, dropout=dropout) for _ in range(n_layers)])
-        self.out_norm = RMSNorm((d_model,))
+        self.out_norm = RMSNorm(d_model)
         self.out_proj = zero_init(nn.Linear(d_model, self.patch_out.d_in, bias=False))
 
     @property
@@ -280,10 +298,10 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         x = self.in_proj(x)
 
         # Mapping network
-        c_noise = sigma / (sigma + self.sigma_data)
+        c_noise = torch.log(sigma) / 4
         time_emb = self.time_in_proj(self.time_emb(c_noise[..., None]))
         aug_cond = x.new_zeros([x.shape[0], 9]) if aug_cond is None else aug_cond
-        aug_emb = self.aug_in_proj(aug_cond)
+        aug_emb = self.aug_in_proj(self.aug_emb(aug_cond))
         cond = self.mapping(time_emb + aug_emb).unsqueeze(-2)
 
         # Transformer
