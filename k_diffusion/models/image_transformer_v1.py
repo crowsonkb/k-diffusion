@@ -83,24 +83,28 @@ class RMSNorm(nn.Module):
 
 
 class QKNorm(nn.Module):
-    def __init__(self, n_heads, eps=1e-6, scale_init=10.0, max_scale=100.0):
+    def __init__(self, n_heads, eps=1e-6, init_scale_min=1.0, init_scale_max=100.0, max_scale=100.0):
         super().__init__()
         self.eps = eps
         self.max_scale = math.log(max_scale)
-        self.scale = nn.Parameter(torch.full((n_heads,), math.log(scale_init)))
-        self.proj()
+        if n_heads == 1:
+            scale = torch.tensor([(math.log(init_scale_min) + math.log(init_scale_max)) / 2])
+        else:
+            scale = torch.linspace(math.log(init_scale_min), math.log(init_scale_max), n_heads)
+        self.scale = nn.Parameter(scale)
+        self.proj_()
 
     def extra_repr(self):
         return f"n_heads={self.scale.shape[0]}, eps={self.eps}"
 
     @torch.no_grad()
-    def proj(self):
+    def proj_(self):
         """Modify the scale in-place so it doesn't get "stuck" with zero gradient if it's clamped
         to the max value."""
         self.scale.clamp_(max=self.max_scale)
 
     def forward(self, x):
-        self.proj()
+        self.proj_()
         scale = torch.exp(0.5 * self.scale - 0.25 * math.log(x.shape[-1]))
         return rms_norm(x, scale[:, None, None], self.eps)
 
