@@ -124,7 +124,7 @@ class FeedForwardBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model, d_model)
         self.up_proj = nn.Linear(d_model, d_ff * 2, bias=False)
         self.act = GEGLU()
-        self.dropout = nn.Dropout(dropout, inplace=True)
+        self.dropout = nn.Dropout(dropout)
         self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
 
     def forward(self, x, cond):
@@ -141,15 +141,15 @@ class SelfAttentionBlock(nn.Module):
         super().__init__()
         self.d_head = d_head
         self.n_heads = d_model // d_head
-        self.attn_dropout = dropout
         self.norm = AdaRMSNorm(d_model, d_model)
         self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
         self.qk_norm = QKNorm(self.n_heads)
         self.pos_emb = AxialRoPE(d_head, self.n_heads)
+        self.dropout = nn.Dropout(dropout)
         self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
 
     def extra_repr(self):
-        return f"d_head={self.d_head}, dropout={self.attn_dropout},"
+        return f"d_head={self.d_head},"
 
     def forward(self, x, pos, attn_mask, cond):
         x = self.norm(x, cond)
@@ -159,8 +159,9 @@ class SelfAttentionBlock(nn.Module):
         v = rearrange(v, "n l (h e) -> n h l e", e=self.d_head)
         q = self.pos_emb(self.qk_norm(q), pos)
         k = self.pos_emb(self.qk_norm(k), pos)
-        x = scaled_dot_product_attention(q, k, v, attn_mask, self.attn_dropout if self.training else 0.0)
+        x = scaled_dot_product_attention(q, k, v, attn_mask)
         x = rearrange(x, "n h l e -> n l (h e)")
+        x = self.dropout(x)
         x = self.out_proj(x)
         return x
 
