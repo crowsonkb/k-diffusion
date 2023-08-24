@@ -364,6 +364,8 @@ def main():
                     if args.gns:
                         sq_norm_small_batch, sq_norm_large_batch = gns_stats_hook.get_stats()
                         gns_stats.update(sq_norm_small_batch, sq_norm_large_batch, reals.shape[0], reals.shape[0] * accelerator.num_processes)
+                    if accelerator.sync_gradients:
+                        accelerator.clip_grad_norm_(model.parameters(), 1.)
                     opt.step()
                     sched.step()
                     opt.zero_grad()
