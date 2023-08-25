@@ -219,17 +219,20 @@ class Unpatching(nn.Module):
 
 
 class MappingNetwork(nn.Module):
-    def __init__(self, in_features, out_features):
+    def __init__(self, in_features, out_features, dropout=0.0):
         super().__init__()
         self.norm = RMSNorm(in_features)
         self.act = nn.GELU()
+        self.dropout = nn.Dropout(dropout)
         self.linear_1 = nn.Linear(in_features, out_features, bias=False)
 
     def forward(self, x):
         x = self.norm(x)
         x = self.act(x)
+        x = self.dropout(x)
         x = self.linear_1(x)
         x = self.act(x)
+        x = self.dropout(x)
         return x
 
 
@@ -244,7 +247,7 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         self.time_in_proj = nn.Linear(d_model, d_model, bias=False)
         self.aug_emb = layers.FourierFeatures(9, d_model)
         self.aug_in_proj = nn.Linear(d_model, d_model, bias=False)
-        self.mapping = MappingNetwork(d_model, d_model)
+        self.mapping = MappingNetwork(d_model, d_model, dropout=dropout)
 
         self.in_proj = nn.Linear(self.patch_in.d_out, d_model, bias=False)
         self.blocks = nn.ModuleList([TransformerBlock(d_model, d_ff, 64, dropout=dropout) for _ in range(n_layers)])
