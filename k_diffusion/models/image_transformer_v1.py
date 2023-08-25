@@ -83,15 +83,11 @@ class RMSNorm(nn.Module):
 
 
 class QKNorm(nn.Module):
-    def __init__(self, n_heads, eps=1e-6, init_scale_min=1.0, init_scale_max=100.0, max_scale=100.0):
+    def __init__(self, n_heads, eps=1e-6, max_scale=100.0):
         super().__init__()
         self.eps = eps
         self.max_scale = math.log(max_scale)
-        if n_heads == 1:
-            scale = torch.tensor([(math.log(init_scale_min) + math.log(init_scale_max)) / 2])
-        else:
-            scale = torch.linspace(math.log(init_scale_min), math.log(init_scale_max), n_heads)
-        self.scale = nn.Parameter(scale)
+        self.scale = nn.Parameter(torch.full((n_heads,), math.log(10.0)))
         self.proj_()
 
     def extra_repr(self):
