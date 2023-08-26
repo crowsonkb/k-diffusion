@@ -103,8 +103,8 @@ class KarrasAugmentWrapper(nn.Module):
             mapping_cond = torch.cat([aug_cond, mapping_cond], dim=1)
         return self.inner_model(input, sigma, mapping_cond=mapping_cond, **kwargs)
 
-    def wd_params(self):
-        return self.inner_model.wd_params()
+    def param_groups(self, *args, **kwargs):
+        return self.inner_model.param_groups(*args, **kwargs)
 
     def set_skip_stages(self, skip_stages):
         return self.inner_model.set_skip_stages(skip_stages)

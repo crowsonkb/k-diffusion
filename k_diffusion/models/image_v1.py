@@ -114,7 +114,7 @@ class ImageDenoiserModelV1(nn.Module):
             u_blocks.append(UBlock(depths[i], feats_in, my_c_in, channels[i], my_c_out, upsample=i > skip_stages, self_attn=self_attn_depths[i], cross_attn=cross_attn_depths[i], c_enc=cross_cond_dim, dropout_rate=dropout_rate))
         self.u_net = layers.UNet(d_blocks, reversed(u_blocks), skip_stages=skip_stages)
 
-    def wd_params(self):
+    def param_groups(self, base_lr=2e-4):
         wd_names = []
         for name, _ in self.named_parameters():
             if name.startswith("mapping") or name.startswith("u_net"):
@@ -126,7 +126,11 @@ class ImageDenoiserModelV1(nn.Module):
                 wd.append(param)
             else:
                 no_wd.append(param)
-        return wd, no_wd
+        groups = [
+            {"params": wd, "lr": base_lr},
+            {"params": no_wd, "lr": base_lr, "weight_decay": 0.0},
+        ]
+        return groups
 
     def forward(self, input, sigma, mapping_cond=None, unet_cond=None, cross_cond=None, cross_cond_padding=None, return_variance=False):
         c_noise = sigma.log() / 4
