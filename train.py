@@ -182,6 +182,8 @@ def main():
 
     if dataset_config['type'] == 'imagefolder':
         train_set = K.utils.FolderOfImages(dataset_config['location'], transform=tf)
+    elif dataset_config['type'] == 'imagefolder-class':
+        train_set = datasets.ImageFolder(dataset_config['location'], transform=tf)
     elif dataset_config['type'] == 'cifar10':
         train_set = datasets.CIFAR10(dataset_config['location'], train=True, download=True, transform=tf)
     elif dataset_config['type'] == 'mnist':
@@ -201,6 +203,9 @@ def main():
             pass
 
     image_key = dataset_config.get('image_key', 0)
+    num_classes = dataset_config.get('num_classes', 0)
+    cond_dropout_rate = dataset_config.get('cond_dropout_rate', 0.1)
+    class_key = dataset_config.get('class_key', 1)
 
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
@@ -280,6 +285,21 @@ def main():
             metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'fid', 'kid'])
         del train_iter
 
+    cfg_scale = 1.
+
+    def make_cfg_model_fn(model):
+        def cfg_model_fn(x, sigma, class_cond):
+            x_in = torch.cat([x, x])
+            sigma_in = torch.cat([sigma, sigma])
+            class_uncond = torch.full_like(class_cond, num_classes)
+            class_cond_in = torch.cat([class_uncond, class_cond])
+            out = model(x_in, sigma_in, class_cond=class_cond_in)
+            out_uncond, out_cond = out.chunk(2)
+            return out_uncond + (out_cond - out_uncond) * cfg_scale
+        if cfg_scale != 1:
+            return cfg_model_fn
+        return model
+
     @torch.no_grad()
     @K.utils.eval_mode(model_ema)
     def demo():
@@ -290,8 +310,14 @@ def main():
         x = torch.randn([accelerator.num_processes, n_per_proc, model_config['input_channels'], size[0], size[1]], generator=demo_gen).to(device)
         dist.broadcast(x, 0)
         x = x[accelerator.process_index] * sigma_max
+        model_fn, extra_args = model_ema, {}
+        if num_classes:
+            class_cond = torch.randint(0, num_classes, [accelerator.num_processes, n_per_proc], generator=demo_gen).to(device)
+            dist.broadcast(class_cond, 0)
+            extra_args['class_cond'] = class_cond[accelerator.process_index]
+            model_fn = make_cfg_model_fn(model_ema)
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
-        x_0 = K.sampling.sample_dpmpp_2m_sde(model_ema, x, sigmas, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
+        x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
         x_0 = accelerator.gather(x_0)[:args.sample_n]
         if accelerator.is_main_process:
             grid = utils.make_grid(x_0, nrow=math.ceil(args.sample_n ** 0.5), padding=0)
@@ -309,7 +335,11 @@ def main():
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         def sample_fn(n):
             x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
-            x_0 = K.sampling.sample_dpmpp_2m_sde(model_ema, x, sigmas, eta=0.0, solver_type='heun', disable=True)
+            model_fn, extra_args = model_ema, {}
+            if num_classes:
+                extra_args['class_cond'] = torch.randint(0, num_classes, [n], device=device)
+                model_fn = make_cfg_model_fn(model_ema)
+            x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=True)
             return x_0
         fakes_features = K.evaluation.compute_features(accelerator, sample_fn, extractor, args.evaluate_n, args.batch_size)
         if accelerator.is_main_process:
@@ -355,9 +385,15 @@ def main():
             for batch in tqdm(train_dl, disable=not accelerator.is_main_process):
                 with accelerator.accumulate(model):
                     reals, _, aug_cond = batch[image_key]
+                    class_cond, extra_args = None, {}
+                    if num_classes:
+                        class_cond = batch[class_key]
+                        drop = torch.rand(class_cond.shape, device=class_cond.device)
+                        class_cond.masked_fill_(drop < cond_dropout_rate, num_classes)
+                        extra_args['class_cond'] = class_cond
                     noise = torch.randn_like(reals)
                     sigma = sample_density([reals.shape[0]], device=device)
-                    losses = model.loss(reals, noise, sigma, aug_cond=aug_cond)
+                    losses = model.loss(reals, noise, sigma, aug_cond=aug_cond, **extra_args)
                     loss = accelerator.gather(losses).mean().item()
                     losses_since_last_print.append(loss)
                     accelerator.backward(losses.mean())

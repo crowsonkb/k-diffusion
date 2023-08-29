@@ -65,6 +65,8 @@ def load_config(path_or_dict):
         },
         'dataset': {
             'type': 'imagefolder',
+            'num_classes': 0,
+            'cond_dropout_rate': 0.1,
         },
         'optimizer': {
             'type': 'adamw',
@@ -102,6 +104,8 @@ def load_config(path_or_dict):
 
 
 def make_model(config):
+    dataset_config = config['dataset']
+    num_classes = dataset_config['num_classes']
     config = config['model']
     if config['type'] == 'image_v1':
         model = models.ImageDenoiserModelV1(
@@ -129,6 +133,7 @@ def make_model(config):
             in_features=config['input_channels'],
             out_features=config['input_channels'],
             patch_size=config['patch_size'],
+            num_classes=num_classes + 1 if num_classes else 0,
             dropout=config['dropout_rate'],
             sigma_data=config['sigma_data'],
         )

@@ -19,7 +19,9 @@
     },
     "dataset": {
         "type": "cifar10",
-        "location": "data"
+        "location": "data",
+        "num_classes": 10,
+        "cond_dropout_rate": 0.1
     },
     "optimizer": {
         "type": "adamw",

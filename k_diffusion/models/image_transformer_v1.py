@@ -218,28 +218,44 @@ class Unpatching(nn.Module):
         return x
 
 
-class MappingNetwork(nn.Module):
-    def __init__(self, in_features, out_features, dropout=0.0):
+class MappingFeedForwardBlock(nn.Module):
+    def __init__(self, d_model, d_ff, dropout=0.0):
         super().__init__()
-        self.norm = RMSNorm(in_features)
-        self.act = nn.GELU()
+        self.norm = RMSNorm(d_model)
+        self.up_proj = nn.Linear(d_model, d_ff * 2, bias=False)
+        self.act = GEGLU()
         self.dropout = nn.Dropout(dropout)
-        self.linear_1 = nn.Linear(in_features, out_features, bias=False)
+        self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
 
     def forward(self, x):
         x = self.norm(x)
+        x = self.up_proj(x)
         x = self.act(x)
         x = self.dropout(x)
-        x = self.linear_1(x)
-        x = self.act(x)
-        x = self.dropout(x)
+        x = self.down_proj(x)
+        return x
+
+
+class MappingNetwork(nn.Module):
+    def __init__(self, n_layers, d_model, d_ff, dropout=0.0):
+        super().__init__()
+        self.in_norm = RMSNorm(d_model)
+        self.blocks = nn.ModuleList([MappingFeedForwardBlock(d_model, d_ff, dropout=dropout) for _ in range(n_layers)])
+        self.out_norm = RMSNorm(d_model)
+
+    def forward(self, x):
+        x = self.in_norm(x)
+        for block in self.blocks:
+            x = x + block(x)
+        x = self.out_norm(x)
         return x
 
 
 class ImageTransformerDenoiserModelV1(nn.Module):
-    def __init__(self, n_layers, d_model, d_ff, in_features, out_features, patch_size, dropout=0.0, sigma_data=1.0):
+    def __init__(self, n_layers, d_model, d_ff, in_features, out_features, patch_size, num_classes=0, dropout=0.0, sigma_data=1.0):
         super().__init__()
         self.sigma_data = sigma_data
+        self.num_classes = num_classes
         self.patch_in = Patching(in_features, patch_size)
         self.patch_out = Unpatching(out_features, patch_size)
 
@@ -247,7 +263,8 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         self.time_in_proj = nn.Linear(d_model, d_model, bias=False)
         self.aug_emb = layers.FourierFeatures(9, d_model)
         self.aug_in_proj = nn.Linear(d_model, d_model, bias=False)
-        self.mapping = MappingNetwork(d_model, d_model, dropout=dropout)
+        self.class_emb = nn.Embedding(num_classes, d_model) if num_classes else None
+        self.mapping = MappingNetwork(2, d_model, d_ff, dropout=dropout)
 
         self.in_proj = nn.Linear(self.patch_in.d_out, d_model, bias=False)
         self.blocks = nn.ModuleList([TransformerBlock(d_model, d_ff, 64, dropout=dropout) for _ in range(n_layers)])
@@ -293,7 +310,7 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         ]
         return groups
 
-    def forward(self, x, sigma, aug_cond=None):
+    def forward(self, x, sigma, aug_cond=None, class_cond=None):
         # Patching
         *_, h, w = x.shape
         x, pos = self.patch_in(x)
@@ -301,11 +318,15 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         x = self.in_proj(x)
 
         # Mapping network
+        if class_cond is None and self.class_emb is not None:
+            raise ValueError("class_cond must be specified if num_classes > 0")
+
         c_noise = torch.log(sigma) / 4
         time_emb = self.time_in_proj(self.time_emb(c_noise[..., None]))
         aug_cond = x.new_zeros([x.shape[0], 9]) if aug_cond is None else aug_cond
         aug_emb = self.aug_in_proj(self.aug_emb(aug_cond))
-        cond = self.mapping(time_emb + aug_emb).unsqueeze(-2)
+        class_emb = self.class_emb(class_cond) if self.class_emb is not None else 0
+        cond = self.mapping(time_emb + aug_emb + class_emb).unsqueeze(-2)
 
         # Transformer
         for block in self.blocks:
