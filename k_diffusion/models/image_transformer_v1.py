@@ -174,9 +174,8 @@ class TransformerBlock(nn.Module):
         self.checkpointing = False
 
     def forward(self, x, pos, attn_mask, cond):
-        enable = self.checkpointing and self.training
-        x = x + checkpoint_helper(self.self_attn, x, pos, attn_mask, cond, enable=enable)
-        x = x + checkpoint_helper(self.ff, x, cond, enable=enable)
+        x = x + checkpoint_helper(self.self_attn, x, pos, attn_mask, cond, enable=self.checkpointing)
+        x = x + checkpoint_helper(self.ff, x, cond, enable=self.checkpointing)
         return x
 
 
