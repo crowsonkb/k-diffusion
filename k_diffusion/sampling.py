@@ -625,6 +625,8 @@ def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
     extra_args = {} if extra_args is None else extra_args
     s_in = x.new_ones([x.shape[0]])
 
+    t_fn = _mps_to_cpu_convert(lambda sigma: sigma.log().neg())
+
     old_denoised = None
     h_last = None
 
@@ -637,7 +639,7 @@ def sample_dpmpp_2m_sde(model, x, sigmas, extra_args=None, callback=None, disabl
             x = denoised
         else:
             # DPM-Solver++(2M) SDE
-            t, s = -sigmas[i].log(), -sigmas[i + 1].log()
+            t, s = t_fn(sigmas[i]), t_fn(sigmas[i + 1])
             h = s - t
             eta_h = eta * h
 
