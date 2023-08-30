@@ -23,11 +23,21 @@ class Denoiser(nn.Module):
             self.weighting = torch.ones_like
         elif weighting == 'soft-min-snr':
             self.weighting = self._weighting_soft_min_snr
+        elif weighting == 'sqrt-snr':
+            self.weighting = self._weighting_sqrt_snr
+        elif weighting == 'snr':
+            self.weighting = self._weighting_snr
         else:
             raise ValueError(f'Unknown weighting type {weighting}')
 
     def _weighting_soft_min_snr(self, sigma):
         return (sigma * self.sigma_data) ** 2 / (sigma ** 2 + self.sigma_data ** 2) ** 2
+
+    def _weighting_sqrt_snr(self, sigma):
+        return sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2)
+
+    def _weighting_snr(self, sigma):
+        return 1 / (sigma ** 2 + self.sigma_data ** 2)
 
     def get_scalings(self, sigma):
         c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)

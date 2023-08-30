@@ -10,7 +10,7 @@
         "self_attn_depths": [false, true, true],
         "has_variance": false,
         "loss_config": "karras",
-        "loss_weighting": "soft-min-snr",
+        "loss_weighting": "sqrt-snr",
         "dropout_rate": 0.05,
         "augment_wrapper": true,
         "augment_prob": 0.12,
