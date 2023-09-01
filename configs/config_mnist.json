@@ -10,7 +10,7 @@
         "self_attn_depths": [false, false, true],
         "has_variance": false,
         "loss_config": "karras",
-        "loss_weighting": "sqrt-snr",
+        "loss_weighting": "soft-min-snr",
         "dropout_rate": 0.05,
         "augment_wrapper": true,
         "augment_prob": 0.12,
@@ -18,7 +18,7 @@
         "sigma_min": 1e-2,
         "sigma_max": 80,
         "sigma_sample_density": {
-            "type": "cosine"
+            "type": "cosine-interpolated"
         }
     },
     "dataset": {

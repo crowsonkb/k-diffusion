@@ -13,18 +13,17 @@ from . import sampling, utils
 class Denoiser(nn.Module):
     """A Karras et al. preconditioner for denoising diffusion models."""
 
-    def __init__(self, inner_model, sigma_data=1., weighting='karras'):
+    def __init__(self, inner_model, sigma_data=1., weighting='karras', scales=1):
         super().__init__()
         self.inner_model = inner_model
         self.sigma_data = sigma_data
+        self.scales = scales
         if callable(weighting):
             self.weighting = weighting
         if weighting == 'karras':
             self.weighting = torch.ones_like
         elif weighting == 'soft-min-snr':
             self.weighting = self._weighting_soft_min_snr
-        elif weighting == 'sqrt-snr':
-            self.weighting = self._weighting_sqrt_snr
         elif weighting == 'snr':
             self.weighting = self._weighting_snr
         else:
@@ -32,9 +31,6 @@ class Denoiser(nn.Module):
 
     def _weighting_soft_min_snr(self, sigma):
         return (sigma * self.sigma_data) ** 2 / (sigma ** 2 + self.sigma_data ** 2) ** 2
-
-    def _weighting_sqrt_snr(self, sigma):
-        return sigma * self.sigma_data / (sigma ** 2 + self.sigma_data ** 2)
 
     def _weighting_snr(self, sigma):
         return 1 / (sigma ** 2 + self.sigma_data ** 2)
@@ -51,7 +47,12 @@ class Denoiser(nn.Module):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
         target = (input - c_skip * noised_input) / c_out
-        return (model_output - target).pow(2).flatten(1).mean(1) * c_weight
+        losses = (model_output - target).pow(2).flatten(1).mean(1) * c_weight
+        for _ in range(1, self.scales):
+            model_output = F.interpolate(model_output, scale_factor=0.5, mode='bicubic', align_corners=False, antialias=True)
+            target = F.interpolate(target, scale_factor=0.5, mode='bicubic', align_corners=False, antialias=True)
+            losses = losses + (model_output - target).pow(2).flatten(1).mean(1) * c_weight
+        return losses
 
     def forward(self, input, sigma, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]

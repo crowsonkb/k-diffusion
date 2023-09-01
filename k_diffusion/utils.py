@@ -292,6 +292,30 @@ def rand_v_diffusion(shape, sigma_data=1., min_value=0., max_value=float('inf'),
     return torch.tan(u * math.pi / 2) * sigma_data
 
 
+def rand_cosine_interpolated(shape, image_d, noise_d_low, noise_d_high, sigma_data=1., min_value=1e-3, max_value=1e3, device='cpu', dtype=torch.float32):
+    """Draws samples from an interpolated cosine timestep distribution (from simple diffusion)."""
+
+    def logsnr_schedule_cosine(t, logsnr_min, logsnr_max):
+        t_min = math.atan(math.exp(-0.5 * logsnr_max))
+        t_max = math.atan(math.exp(-0.5 * logsnr_min))
+        return -2 * torch.log(torch.tan(t_min + t * (t_max - t_min)))
+
+    def logsnr_schedule_cosine_shifted(t, image_d, noise_d, logsnr_min, logsnr_max):
+        shift = 2 * math.log(noise_d / image_d)
+        return logsnr_schedule_cosine(t, logsnr_min - shift, logsnr_max - shift) + shift
+
+    def logsnr_schedule_cosine_interpolated(t, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max):
+        logsnr_low = logsnr_schedule_cosine_shifted(t, image_d, noise_d_low, logsnr_min, logsnr_max)
+        logsnr_high = logsnr_schedule_cosine_shifted(t, image_d, noise_d_high, logsnr_min, logsnr_max)
+        return torch.lerp(logsnr_low, logsnr_high, t)
+
+    logsnr_min = -2 * math.log(min_value / sigma_data)
+    logsnr_max = -2 * math.log(max_value / sigma_data)
+    u = torch.rand(shape, device=device, dtype=dtype)
+    logsnr = logsnr_schedule_cosine_interpolated(u, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max)
+    return torch.exp(-logsnr / 2) * sigma_data
+
+
 def rand_split_log_normal(shape, loc, scale_1, scale_2, device='cpu', dtype=torch.float32):
     """Draws samples from a split lognormal distribution."""
     n = torch.randn(shape, device=device, dtype=dtype).abs()

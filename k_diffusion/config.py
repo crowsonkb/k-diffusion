@@ -62,6 +62,7 @@ def load_config(path_or_dict):
             'augment_prob': 0.,
             'loss_config': 'karras',
             'loss_weighting': 'karras',
+            'loss_scales': 1,
         },
         'dataset': {
             'type': 'imagefolder',
@@ -149,8 +150,9 @@ def make_denoiser_wrapper(config):
     loss_config = config.get('loss_config', 'karras')
     if loss_config == 'karras':
         weighting = config.get('loss_weighting', 'karras')
+        scales = config.get('loss_scales', 1)
         if not has_variance:
-            return partial(layers.Denoiser, sigma_data=sigma_data, weighting=weighting)
+            return partial(layers.Denoiser, sigma_data=sigma_data, weighting=weighting, scales=scales)
         return partial(layers.DenoiserWithVariance, sigma_data=sigma_data, weighting=weighting)
     if loss_config == 'simple':
         if has_variance:
@@ -185,4 +187,12 @@ def make_sample_density(config):
         scale_1 = sd_config['std_1'] if 'std_1' in sd_config else sd_config['scale_1']
         scale_2 = sd_config['std_2'] if 'std_2' in sd_config else sd_config['scale_2']
         return partial(utils.rand_split_log_normal, loc=loc, scale_1=scale_1, scale_2=scale_2)
+    if sd_config['type'] == 'cosine-interpolated':
+        min_value = sd_config.get('min_value', min(config['sigma_min'], 1e-3))
+        max_value = sd_config.get('max_value', max(config['sigma_max'], 1e3))
+        image_d = sd_config.get('image_d', max(config['input_size']))
+        noise_d_low = sd_config.get('noise_d_low', 32)
+        noise_d_high = sd_config.get('noise_d_high', max(config['input_size']))
+        return partial(utils.rand_cosine_interpolated, image_d=image_d, noise_d_low=noise_d_low, noise_d_high=noise_d_high, sigma_data=sigma_data, min_value=min_value, max_value=max_value)
+
     raise ValueError('Unknown sample density type')
