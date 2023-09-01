@@ -32,12 +32,12 @@ class InceptionV3FeatureExtractor(nn.Module):
 
 
 class CLIPFeatureExtractor(nn.Module):
-    def __init__(self, name='ViT-L/14@336px', device='cpu'):
+    def __init__(self, name='ViT-B/16', device='cpu'):
         super().__init__()
         self.model = clip.load(name, device=device)[0].eval().requires_grad_(False)
         self.normalize = transforms.Normalize(mean=(0.48145466, 0.4578275, 0.40821073),
                                               std=(0.26862954, 0.26130258, 0.27577711))
-        self.size = (self.model.visual.input_resolution, self.model.visual.input_resolution)
+        self.size = self.model.visual.input_resolution, self.model.visual.input_resolution
 
     @classmethod
     def available_models(cls):
@@ -50,7 +50,30 @@ class CLIPFeatureExtractor(nn.Module):
             x = torch.cat([x] * 3, dim=1)
         x = self.normalize(x)
         x = self.model.encode_image(x).float()
-        x = F.normalize(x) * x.shape[1] ** 0.5
+        x = F.normalize(x) * x.shape[-1] ** 0.5
+        return x
+
+
+class DINOv2FeatureExtractor(nn.Module):
+    def __init__(self, name='vitl14', device='cpu'):
+        super().__init__()
+        self.model = torch.hub.load('facebookresearch/dinov2', 'dinov2_' + name).to(device).eval().requires_grad_(False)
+        self.normalize = transforms.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225))
+        self.size = 224, 224
+
+    @classmethod
+    def available_models(cls):
+        return ['vits14', 'vitb14', 'vitl14', 'vitg14']
+
+    def forward(self, x):
+        x = (x + 1) / 2
+        x = F.interpolate(x, self.size, mode='bicubic', align_corners=False, antialias=True)
+        if x.shape[1] == 1:
+            x = torch.cat([x] * 3, dim=1)
+        x = self.normalize(x)
+        with torch.cuda.amp.autocast(dtype=torch.float16):
+            x = self.model(x).float()
+        x = F.normalize(x) * x.shape[-1] ** 0.5
         return x
 
 

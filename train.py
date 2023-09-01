@@ -43,10 +43,13 @@ def main():
                    help='the configuration file')
     p.add_argument('--demo-every', type=int, default=500,
                    help='save a demo grid every this many steps')
+    p.add_argument('--dinov2-model', type=str, default='vitl14',
+                   choices=K.evaluation.DINOv2FeatureExtractor.available_models(),
+                   help='the DINOv2 model to use to evaluate')
     p.add_argument('--evaluate-every', type=int, default=10000,
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-with', type=str, default='inception',
-                   choices=['inception', 'clip'],
+                   choices=['inception', 'clip', 'dinov2'],
                    help='the feature extractor to use for evaluation')
     p.add_argument('--evaluate-n', type=int, default=2000,
                    help='the number of samples to draw to evaluate')
@@ -275,6 +278,8 @@ def main():
             extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
         elif args.evaluate_with == 'clip':
             extractor = K.evaluation.CLIPFeatureExtractor(args.clip_model, device=device)
+        elif args.evaluate_with == 'dinov2':
+            extractor = K.evaluation.DINOv2FeatureExtractor(args.dinov2_model, device=device)
         else:
             raise ValueError('Invalid evaluation feature extractor')
         train_iter = iter(train_dl)
