@@ -33,7 +33,7 @@ class Denoiser(nn.Module):
         return (sigma * self.sigma_data) ** 2 / (sigma ** 2 + self.sigma_data ** 2) ** 2
 
     def _weighting_snr(self, sigma):
-        return 1 / (sigma ** 2 + self.sigma_data ** 2)
+        return self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
 
     def get_scalings(self, sigma):
         c_skip = self.sigma_data ** 2 / (sigma ** 2 + self.sigma_data ** 2)
