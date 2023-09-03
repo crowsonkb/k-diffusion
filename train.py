@@ -129,7 +129,7 @@ def main():
         # inner_model_ema.compile()
 
     if accelerator.is_main_process:
-        print('Parameters:', K.utils.n_params(inner_model))
+        print(f'Parameters: {K.utils.n_params(inner_model):,}')
 
     # If logging to wandb, initialize the run
     use_wandb = accelerator.is_main_process and args.wandb_project
