@@ -287,7 +287,7 @@ def main():
             print('Computing features for reals...')
         reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
         if accelerator.is_main_process:
-            metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'fid', 'kid'])
+            metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'loss', 'fid', 'kid'])
         del train_iter
 
     cfg_scale = 1.
@@ -352,7 +352,7 @@ def main():
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             if accelerator.is_main_process:
-                metrics_log.write(step, fid.item(), kid.item())
+                metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
