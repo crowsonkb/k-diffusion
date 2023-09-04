@@ -201,7 +201,7 @@ def main():
 
     if accelerator.is_main_process:
         try:
-            print('Number of items in dataset:', len(train_set))
+            print(f'Number of items in dataset: {len(train_set):,}')
         except TypeError:
             pass
 
