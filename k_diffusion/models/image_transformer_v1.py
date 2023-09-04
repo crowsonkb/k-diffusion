@@ -280,27 +280,22 @@ class ImageTransformerDenoiserModelV1(nn.Module):
             block.checkpointing = value
 
     def param_groups(self, base_lr=5e-4, mapping_lr_scale=1 / 3):
-        mapping_names = []
-        wd_names = []
+        mapping_names, wd_names = [], []
         for name, _ in self.named_parameters():
-            if name.startswith("mapping"):
+            if name.startswith("mapping") or "norm.linear" in name:
                 mapping_names.append(name)
-            if "norm.linear" in name:
-                mapping_names.append(name)
-        for name, _ in self.named_parameters():
-            if name.startswith("mapping") or name.startswith("blocks"):
-                if name.endswith(".weight"):
-                    wd_names.append(name)
-        wd, no_wd, mapping_wd, mapping_no_wd = [], [], [], []
+            if (name.startswith("mapping") or name.startswith("blocks")) and name.endswith(".weight"):
+                wd_names.append(name)
+        mapping_wd, mapping_no_wd, wd, no_wd = [], [], [], []
         for name, param in self.named_parameters():
-            if name in wd_names and name not in mapping_names:
-                wd.append(param)
-            elif name not in wd_names and name not in mapping_names:
-                no_wd.append(param)
-            elif name in wd_names and name in mapping_names:
+            if name in wd_names and name in mapping_names:
                 mapping_wd.append(param)
-            else:
+            elif name not in wd_names and name in mapping_names:
                 mapping_no_wd.append(param)
+            elif name in wd_names and name not in mapping_names:
+                wd.append(param)
+            else:
+                no_wd.append(param)
         groups = [
             {"params": wd, "lr": base_lr},
             {"params": no_wd, "lr": base_lr, "weight_decay": 0.0},
