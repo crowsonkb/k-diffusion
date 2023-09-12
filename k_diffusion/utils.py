@@ -3,6 +3,7 @@ import hashlib
 import math
 from pathlib import Path
 import shutil
+import threading
 import urllib
 import warnings
 
@@ -262,9 +263,66 @@ class ConstantLRWithWarmup(optim.lr_scheduler._LRScheduler):
         return [warmup * base_lr for base_lr in self.base_lrs]
 
 
+def stratified_uniform(shape, group=0, groups=1, dtype=None, device=None):
+    """Draws stratified samples from a uniform distribution."""
+    if groups <= 0:
+        raise ValueError(f"groups must be positive, got {groups}")
+    if group < 0 or group >= groups:
+        raise ValueError(f"group must be in [0, {groups})")
+    n = shape[-1] * groups
+    offsets = torch.linspace(0, 1, n + 1, dtype=dtype, device=device)[group:n:groups]
+    u = torch.rand(shape, dtype=dtype, device=device)
+    return torch.clamp(offsets + u / n, 0, 1)
+
+
+stratified_settings = threading.local()
+
+
+@contextmanager
+def enable_stratified(group=0, groups=1, disable=False):
+    """A context manager that enables stratified sampling."""
+    try:
+        stratified_settings.disable = disable
+        stratified_settings.group = group
+        stratified_settings.groups = groups
+        yield
+    finally:
+        del stratified_settings.disable
+        del stratified_settings.group
+        del stratified_settings.groups
+
+
+@contextmanager
+def enable_stratified_accelerate(accelerator, disable=False):
+    """A context manager that enables stratified sampling, distributing the strata across
+    all processes and gradient accumulation steps using settings from Hugging Face Accelerate."""
+    try:
+        rank = accelerator.process_index
+        world_size = accelerator.num_processes
+        acc_steps = accelerator.gradient_state.num_steps
+        acc_step = accelerator.step % acc_steps
+        group = rank * acc_steps + acc_step
+        groups = world_size * acc_steps
+        with enable_stratified(group, groups, disable=disable):
+            yield
+    finally:
+        pass
+
+
+def stratified_with_settings(shape, dtype=None, device=None):
+    """Draws stratified samples from a uniform distribution, using settings from a context
+    manager."""
+    if not hasattr(stratified_settings, 'disable') or stratified_settings.disable:
+        return torch.rand(shape, dtype=dtype, device=device)
+    return stratified_uniform(
+        shape, stratified_settings.group, stratified_settings.groups, dtype=dtype, device=device
+    )
+
+
 def rand_log_normal(shape, loc=0., scale=1., device='cpu', dtype=torch.float32):
     """Draws samples from an lognormal distribution."""
-    return (torch.randn(shape, device=device, dtype=dtype) * scale + loc).exp()
+    u = stratified_with_settings(shape, device=device, dtype=dtype).clamp(1e-7, 1 - 1e-7)
+    return torch.distributions.Normal(loc, scale).icdf(u).exp()
 
 
 def rand_log_logistic(shape, loc=0., scale=1., min_value=0., max_value=float('inf'), device='cpu', dtype=torch.float32):
@@ -273,7 +331,7 @@ def rand_log_logistic(shape, loc=0., scale=1., min_value=0., max_value=float('in
     max_value = torch.as_tensor(max_value, device=device, dtype=torch.float64)
     min_cdf = min_value.log().sub(loc).div(scale).sigmoid()
     max_cdf = max_value.log().sub(loc).div(scale).sigmoid()
-    u = torch.rand(shape, device=device, dtype=torch.float64) * (max_cdf - min_cdf) + min_cdf
+    u = stratified_with_settings(shape, device=device, dtype=torch.float64) * (max_cdf - min_cdf) + min_cdf
     return u.logit().mul(scale).add(loc).exp().to(dtype)
 
 
@@ -281,14 +339,14 @@ def rand_log_uniform(shape, min_value, max_value, device='cpu', dtype=torch.floa
     """Draws samples from an log-uniform distribution."""
     min_value = math.log(min_value)
     max_value = math.log(max_value)
-    return (torch.rand(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value).exp()
+    return (stratified_with_settings(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value).exp()
 
 
 def rand_v_diffusion(shape, sigma_data=1., min_value=0., max_value=float('inf'), device='cpu', dtype=torch.float32):
     """Draws samples from a truncated v-diffusion training timestep distribution."""
     min_cdf = math.atan(min_value / sigma_data) * 2 / math.pi
     max_cdf = math.atan(max_value / sigma_data) * 2 / math.pi
-    u = torch.rand(shape, device=device, dtype=dtype) * (max_cdf - min_cdf) + min_cdf
+    u = stratified_with_settings(shape, device=device, dtype=dtype) * (max_cdf - min_cdf) + min_cdf
     return torch.tan(u * math.pi / 2) * sigma_data
 
 
@@ -311,7 +369,7 @@ def rand_cosine_interpolated(shape, image_d, noise_d_low, noise_d_high, sigma_da
 
     logsnr_min = -2 * math.log(min_value / sigma_data)
     logsnr_max = -2 * math.log(max_value / sigma_data)
-    u = torch.rand(shape, device=device, dtype=dtype)
+    u = stratified_with_settings(shape, device=device, dtype=dtype)
     logsnr = logsnr_schedule_cosine_interpolated(u, image_d, noise_d_low, noise_d_high, logsnr_min, logsnr_max)
     return torch.exp(-logsnr / 2) * sigma_data
 

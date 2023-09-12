@@ -54,7 +54,7 @@ def main():
     p.add_argument('--evaluate-n', type=int, default=2000,
                    help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
-                   help='measure the gradient noise scale (DDP only)')
+                   help='measure the gradient noise scale (DDP only, disables stratified sampling)')
     p.add_argument('--grad-accum-steps', type=int, default=1,
                    help='the number of gradient accumulation steps')
     p.add_argument('--grow', type=str,
@@ -397,7 +397,8 @@ def main():
                         class_cond.masked_fill_(drop < cond_dropout_rate, num_classes)
                         extra_args['class_cond'] = class_cond
                     noise = torch.randn_like(reals)
-                    sigma = sample_density([reals.shape[0]], device=device)
+                    with K.utils.enable_stratified_accelerate(accelerator, disable=args.gns):
+                        sigma = sample_density([reals.shape[0]], device=device)
                     losses = model.loss(reals, noise, sigma, aug_cond=aug_cond, **extra_args)
                     loss = accelerator.gather(losses).mean().item()
                     losses_since_last_print.append(loss)
