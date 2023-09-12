@@ -270,9 +270,9 @@ def stratified_uniform(shape, group=0, groups=1, dtype=None, device=None):
     if group < 0 or group >= groups:
         raise ValueError(f"group must be in [0, {groups})")
     n = shape[-1] * groups
-    offsets = torch.linspace(0, 1, n + 1, dtype=dtype, device=device)[group:n:groups]
+    offsets = torch.arange(group, n, groups, dtype=dtype, device=device)
     u = torch.rand(shape, dtype=dtype, device=device)
-    return torch.clamp(offsets + u / n, 0, 1)
+    return (offsets + u) / n
 
 
 stratified_settings = threading.local()
@@ -321,7 +321,7 @@ def stratified_with_settings(shape, dtype=None, device=None):
 
 def rand_log_normal(shape, loc=0., scale=1., device='cpu', dtype=torch.float32):
     """Draws samples from an lognormal distribution."""
-    u = stratified_with_settings(shape, device=device, dtype=dtype).clamp(1e-7, 1 - 1e-7)
+    u = stratified_with_settings(shape, device=device, dtype=dtype) * (1 - 2e-7) + 1e-7
     return torch.distributions.Normal(loc, scale).icdf(u).exp()
 
 
