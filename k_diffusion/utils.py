@@ -93,7 +93,7 @@ def ema_update(model, averaged_model, decay):
     assert model_params.keys() == averaged_params.keys()
 
     for name, param in model_params.items():
-        averaged_params[name].mul_(decay).add_(param, alpha=1 - decay)
+        averaged_params[name].lerp_(param, 1 - decay)
 
     model_buffers = dict(model.named_buffers())
     averaged_buffers = dict(averaged_model.named_buffers())
