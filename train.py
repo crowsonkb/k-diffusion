@@ -46,6 +46,8 @@ def main():
     p.add_argument('--dinov2-model', type=str, default='vitl14',
                    choices=K.evaluation.DINOv2FeatureExtractor.available_models(),
                    help='the DINOv2 model to use to evaluate')
+    p.add_argument('--end-step', type=int, default=None,
+                   help='the step to end training at')
     p.add_argument('--evaluate-every', type=int, default=10000,
                    help='save a demo grid every this many steps')
     p.add_argument('--evaluate-with', type=str, default='inception',
@@ -57,10 +59,6 @@ def main():
                    help='measure the gradient noise scale (DDP only, disables stratified sampling)')
     p.add_argument('--grad-accum-steps', type=int, default=1,
                    help='the number of gradient accumulation steps')
-    p.add_argument('--grow', type=str,
-                   help='the checkpoint to grow from')
-    p.add_argument('--grow-config', type=str,
-                   help='the configuration file of the model to grow from')
     p.add_argument('--lr', type=float,
                    help='the learning rate')
     p.add_argument('--mixed-precision', type=str,
@@ -69,6 +67,8 @@ def main():
                    help='the name of the run')
     p.add_argument('--num-workers', type=int, default=8,
                    help='the number of data loader workers')
+    p.add_argument('--reset-ema', action='store_true',
+                   help='reset the EMA')
     p.add_argument('--resume', type=str,
                    help='the checkpoint to resume from')
     p.add_argument('--sample-n', type=int, default=64,
@@ -108,10 +108,10 @@ def main():
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
     size = model_config['input_size']
 
-    ddp_kwargs = accelerate.DistributedDataParallelKwargs(find_unused_parameters=model_config['skip_stages'] > 0)
-    accelerator = accelerate.Accelerator(kwargs_handlers=[ddp_kwargs], gradient_accumulation_steps=args.grad_accum_steps, mixed_precision=args.mixed_precision)
+    accelerator = accelerate.Accelerator(gradient_accumulation_steps=args.grad_accum_steps, mixed_precision=args.mixed_precision)
     ensure_distributed()
     device = accelerator.device
+    unwrap = accelerator.unwrap_model
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
 
     if args.seed is not None:
@@ -213,20 +213,6 @@ def main():
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True)
 
-    if args.grow:
-        if not args.grow_config:
-            raise ValueError('--grow requires --grow-config')
-        ckpt = torch.load(args.grow, map_location='cpu')
-        old_config = K.config.load_config(args.grow_config)
-        old_inner_model = K.config.make_model(old_config)
-        old_inner_model.load_state_dict(ckpt['model_ema'])
-        if old_config['model']['skip_stages'] != model_config['skip_stages']:
-            old_inner_model.set_skip_stages(model_config['skip_stages'])
-        if old_config['model']['patch_size'] != model_config['patch_size']:
-            old_inner_model.set_patch_size(model_config['patch_size'])
-        inner_model.load_state_dict(old_inner_model.state_dict())
-        del ckpt, old_inner_model
-
     inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
     if use_wandb:
         wandb.watch(inner_model)
@@ -255,8 +241,8 @@ def main():
         if accelerator.is_main_process:
             print(f'Resuming from {ckpt_path}...')
         ckpt = torch.load(ckpt_path, map_location='cpu')
-        accelerator.unwrap_model(model.inner_model).load_state_dict(ckpt['model'])
-        accelerator.unwrap_model(model_ema.inner_model).load_state_dict(ckpt['model_ema'])
+        unwrap(model.inner_model).load_state_dict(ckpt['model'])
+        unwrap(model_ema.inner_model).load_state_dict(ckpt['model_ema'])
         opt.load_state_dict(ckpt['opt'])
         sched.load_state_dict(ckpt['sched'])
         ema_sched.load_state_dict(ckpt['ema_sched'])
@@ -271,6 +257,12 @@ def main():
     else:
         epoch = 0
         step = 0
+
+    if args.reset_ema:
+        unwrap(model.inner_model).load_state_dict(unwrap(model_ema.inner_model).state_dict())
+        ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
+                                      max_value=ema_sched_config['max_value'])
+        ema_stats = {}
 
     evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
     if evaluate_enabled:
@@ -361,8 +353,8 @@ def main():
         filename = f'{args.name}_{step:08}.pth'
         if accelerator.is_main_process:
             tqdm.write(f'Saving to {filename}...')
-        inner_model = accelerator.unwrap_model(model.inner_model)
-        inner_model_ema = accelerator.unwrap_model(model_ema.inner_model)
+        inner_model = unwrap(model.inner_model)
+        inner_model_ema = unwrap(model_ema.inner_model)
         obj = {
             'config': config,
             'model': inner_model.state_dict(),
@@ -445,8 +437,13 @@ def main():
                 if evaluate_enabled and step > 0 and step % args.evaluate_every == 0:
                     evaluate()
 
-                if step > 0 and step % args.save_every == 0:
+                if step == args.end_step or (step > 0 and step % args.save_every == 0):
                     save()
+
+                if step == args.end_step:
+                    if accelerator.is_main_process:
+                        tqdm.write('Done!')
+                    return
 
                 step += 1
             epoch += 1
