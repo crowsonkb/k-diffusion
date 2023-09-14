@@ -280,6 +280,10 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         for block in self.blocks:
             block.checkpointing = value
 
+    def proj_(self):
+        for block in self.blocks:
+            block.self_attn.qk_norm.proj_()
+
     def param_groups(self, base_lr=5e-4, mapping_lr_scale=1 / 3):
         mapping_names, wd_names = [], []
         for name, _ in self.named_parameters():
