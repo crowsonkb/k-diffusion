@@ -196,6 +196,7 @@ class Patching(nn.Module):
         if h % self.patch_size[0] != 0 or w % self.patch_size[1] != 0:
             raise ValueError(f"Image size {h}x{w} is not divisible by patch size {self.patch_size[0]}x{self.patch_size[1]}")
         x = rearrange(x, "... c (h i) (w j) -> ... (h w) (c i j)", i=self.patch_size[0], j=self.patch_size[1])
+        pixel_aspect_ratio = pixel_aspect_ratio * self.patch_size[0] / self.patch_size[1]
         pos = make_axial_pos(h_out, w_out, pixel_aspect_ratio, device=x.device)
         return x, pos
 
