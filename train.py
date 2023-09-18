@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 
 import accelerate
+import safetensors.torch as safetorch
 import torch
 import torch._dynamo
 from torch import distributed as dist
@@ -71,6 +72,8 @@ def main():
                    help='reset the EMA')
     p.add_argument('--resume', type=str,
                    help='the checkpoint to resume from')
+    p.add_argument('--resume-inference', type=str,
+                   help='the inference checkpoint to resume from')
     p.add_argument('--sample-n', type=int, default=64,
                    help='the number of images to sample for demo grids')
     p.add_argument('--save-every', type=int, default=10000,
@@ -264,6 +267,14 @@ def main():
                                       max_value=ema_sched_config['max_value'])
         ema_stats = {}
 
+    if args.resume_inference:
+        if accelerator.is_main_process:
+            print(f'Loading {args.resume_inference}...')
+        ckpt = safetorch.load_file(args.resume_inference)
+        unwrap(model.inner_model).load_state_dict(ckpt)
+        unwrap(model_ema.inner_model).load_state_dict(ckpt)
+        del ckpt
+
     evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
     if evaluate_enabled:
         if args.evaluate_with == 'inception':
@@ -431,6 +442,8 @@ def main():
                         log_dict['gradient_noise_scale'] = gns_stats.get_gns()
                     wandb.log(log_dict, step=step)
 
+                step += 1
+
                 if step % args.demo_every == 0:
                     demo()
 
@@ -445,7 +458,6 @@ def main():
                         tqdm.write('Done!')
                     return
 
-                step += 1
             epoch += 1
     except KeyboardInterrupt:
         pass
