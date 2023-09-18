@@ -128,12 +128,13 @@ class FeedForwardBlock(nn.Module):
         self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
 
     def forward(self, x, cond):
+        skip = x
         x = self.norm(x, cond)
         x = self.up_proj(x)
         x = self.act(x)
         x = self.dropout(x)
         x = self.down_proj(x)
-        return x
+        return x + skip
 
 
 class SelfAttentionBlock(nn.Module):
@@ -152,6 +153,7 @@ class SelfAttentionBlock(nn.Module):
         return f"d_head={self.d_head},"
 
     def forward(self, x, pos, attn_mask, cond):
+        skip = x
         x = self.norm(x, cond)
         q, k, v = self.qkv_proj(x).chunk(3, dim=-1)
         q = rearrange(q, "n l (h e) -> n h l e", e=self.d_head)
@@ -163,7 +165,7 @@ class SelfAttentionBlock(nn.Module):
         x = rearrange(x, "n h l e -> n l (h e)")
         x = self.dropout(x)
         x = self.out_proj(x)
-        return x
+        return x + skip
 
 
 class TransformerBlock(nn.Module):
@@ -174,8 +176,8 @@ class TransformerBlock(nn.Module):
         self.checkpointing = False
 
     def forward(self, x, pos, attn_mask, cond):
-        x = x + checkpoint_helper(self.self_attn, x, pos, attn_mask, cond, enable=self.checkpointing)
-        x = x + checkpoint_helper(self.ff, x, cond, enable=self.checkpointing)
+        x = checkpoint_helper(self.self_attn, x, pos, attn_mask, cond, enable=self.checkpointing)
+        x = checkpoint_helper(self.ff, x, cond, enable=self.checkpointing)
         return x
 
 
@@ -228,12 +230,13 @@ class MappingFeedForwardBlock(nn.Module):
         self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
 
     def forward(self, x):
+        skip = x
         x = self.norm(x)
         x = self.up_proj(x)
         x = self.act(x)
         x = self.dropout(x)
         x = self.down_proj(x)
-        return x
+        return x + skip
 
 
 class MappingNetwork(nn.Module):
@@ -246,7 +249,7 @@ class MappingNetwork(nn.Module):
     def forward(self, x):
         x = self.in_norm(x)
         for block in self.blocks:
-            x = x + block(x)
+            x = block(x)
         x = self.out_norm(x)
         return x
 
