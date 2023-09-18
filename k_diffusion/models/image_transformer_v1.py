@@ -23,8 +23,8 @@ def zero_init(layer):
     return layer
 
 
-def checkpoint_helper(function, *args, enable=False, **kwargs):
-    if enable:
+def checkpoint_helper(function, *args, **kwargs):
+    if flags.get_checkpointing():
         kwargs.setdefault("use_reentrant", True)
         return torch.utils.checkpoint.checkpoint(function, *args, **kwargs)
     else:
@@ -176,11 +176,10 @@ class TransformerBlock(nn.Module):
         super().__init__()
         self.self_attn = SelfAttentionBlock(d_model, d_head, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, dropout=dropout)
-        self.checkpointing = False
 
     def forward(self, x, pos, attn_mask, cond):
-        x = checkpoint_helper(self.self_attn, x, pos, attn_mask, cond, enable=self.checkpointing)
-        x = checkpoint_helper(self.ff, x, cond, enable=self.checkpointing)
+        x = checkpoint_helper(self.self_attn, x, pos, attn_mask, cond)
+        x = checkpoint_helper(self.ff, x, cond)
         return x
 
 
@@ -276,15 +275,6 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         self.blocks = nn.ModuleList([TransformerBlock(d_model, d_ff, 64, dropout=dropout) for _ in range(n_layers)])
         self.out_norm = RMSNorm(d_model)
         self.out_proj = zero_init(nn.Linear(d_model, self.patch_out.d_in, bias=False))
-
-    @property
-    def checkpointing(self):
-        return all(block.checkpointing for block in self.blocks)
-
-    @checkpointing.setter
-    def checkpointing(self, value):
-        for block in self.blocks:
-            block.checkpointing = value
 
     def proj_(self):
         for block in self.blocks:

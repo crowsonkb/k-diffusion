@@ -124,8 +124,6 @@ def main():
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
-    if args.checkpointing:
-        inner_model.checkpointing = True
 
     if args.compile:
         inner_model.compile()
@@ -402,7 +400,8 @@ def main():
                     noise = torch.randn_like(reals)
                     with K.utils.enable_stratified_accelerate(accelerator, disable=args.gns):
                         sigma = sample_density([reals.shape[0]], device=device)
-                    losses = model.loss(reals, noise, sigma, aug_cond=aug_cond, **extra_args)
+                    with K.models.checkpointing(args.checkpointing):
+                        losses = model.loss(reals, noise, sigma, aug_cond=aug_cond, **extra_args)
                     loss = accelerator.gather(losses).mean().item()
                     losses_since_last_print.append(loss)
                     accelerator.backward(losses.mean())
