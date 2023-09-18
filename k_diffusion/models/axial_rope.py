@@ -4,7 +4,10 @@ import torch
 import torch._dynamo
 from torch import nn
 
-torch._dynamo.config.suppress_errors = True
+from . import flags
+
+if flags.get_use_compile():
+    torch._dynamo.config.suppress_errors = True
 
 
 def rotate_half(x):
@@ -25,6 +28,8 @@ def _apply_rotary_emb(freqs, t, start_index=0, scale=1.0):
 
 
 try:
+    if not flags.get_use_compile():
+        raise RuntimeError
     apply_rotary_emb = torch.compile(_apply_rotary_emb)
 except RuntimeError:
     apply_rotary_emb = _apply_rotary_emb

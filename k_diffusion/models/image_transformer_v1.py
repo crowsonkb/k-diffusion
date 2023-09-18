@@ -8,10 +8,12 @@ from torch import nn
 import torch._dynamo
 from torch.nn import functional as F
 
+from . import flags
 from .. import layers
 from .axial_rope import AxialRoPE, make_axial_pos
 
-torch._dynamo.config.suppress_errors = True
+if flags.get_use_compile():
+    torch._dynamo.config.suppress_errors = True
 
 
 def zero_init(layer):
@@ -30,8 +32,7 @@ def checkpoint_helper(function, *args, enable=False, **kwargs):
 
 
 def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0):
-    # TODO: add an environment variable to force fallback to PyTorch attention
-    if attn_mask is None:
+    if flags.get_use_flash_attention_2() and attn_mask is None:
         try:
             from flash_attn import flash_attn_func
             q_ = q.transpose(-3, -2)
@@ -57,6 +58,8 @@ def _rms_norm(x, scale, eps):
 
 
 try:
+    if not flags.get_use_compile():
+        raise RuntimeError
     geglu = torch.compile(_geglu)
     rms_norm = torch.compile(_rms_norm)
 except RuntimeError:
