@@ -31,6 +31,34 @@ def checkpoint_helper(function, *args, **kwargs):
         return function(*args, **kwargs)
 
 
+def tag_param(param, tag):
+    if not hasattr(param, "_tags"):
+        param._tags = set([tag])
+    else:
+        param._tags.add(tag)
+    return param
+
+
+def tag_module(module, tag):
+    for param in module.parameters():
+        tag_param(param, tag)
+    return module
+
+
+def apply_wd(module):
+    for name, param in module.named_parameters():
+        if name.endswith("weight"):
+            tag_param(param, "wd")
+    return module
+
+
+def filter_params(function, module):
+    for param in module.parameters():
+        tags = getattr(param, "_tags", set())
+        if function(tags):
+            yield param
+
+
 def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0):
     if flags.get_use_flash_attention_2() and attn_mask is None:
         try:
@@ -112,7 +140,8 @@ class AdaRMSNorm(nn.Module):
     def __init__(self, features, cond_features, eps=1e-6):
         super().__init__()
         self.eps = eps
-        self.linear = zero_init(nn.Linear(cond_features, features, bias=False))
+        self.linear = apply_wd(zero_init(nn.Linear(cond_features, features, bias=False)))
+        tag_module(self.linear, "mapping")
 
     def extra_repr(self):
         return f"eps={self.eps},"
@@ -121,36 +150,17 @@ class AdaRMSNorm(nn.Module):
         return rms_norm(x, self.linear(cond) + 1, self.eps)
 
 
-class FeedForwardBlock(nn.Module):
-    def __init__(self, d_model, d_ff, dropout=0.0):
-        super().__init__()
-        self.norm = AdaRMSNorm(d_model, d_model)
-        self.up_proj = nn.Linear(d_model, d_ff * 2, bias=False)
-        self.act = GEGLU()
-        self.dropout = nn.Dropout(dropout)
-        self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
-
-    def forward(self, x, cond):
-        skip = x
-        x = self.norm(x, cond)
-        x = self.up_proj(x)
-        x = self.act(x)
-        x = self.dropout(x)
-        x = self.down_proj(x)
-        return x + skip
-
-
 class SelfAttentionBlock(nn.Module):
     def __init__(self, d_model, d_head, dropout=0.0):
         super().__init__()
         self.d_head = d_head
         self.n_heads = d_model // d_head
         self.norm = AdaRMSNorm(d_model, d_model)
-        self.qkv_proj = nn.Linear(d_model, d_model * 3, bias=False)
+        self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
         self.qk_norm = QKNorm(self.n_heads)
         self.pos_emb = AxialRoPE(d_head, self.n_heads)
         self.dropout = nn.Dropout(dropout)
-        self.out_proj = zero_init(nn.Linear(d_model, d_model, bias=False))
+        self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
 
     def extra_repr(self):
         return f"d_head={self.d_head},"
@@ -168,6 +178,25 @@ class SelfAttentionBlock(nn.Module):
         x = rearrange(x, "n h l e -> n l (h e)")
         x = self.dropout(x)
         x = self.out_proj(x)
+        return x + skip
+
+
+class FeedForwardBlock(nn.Module):
+    def __init__(self, d_model, d_ff, dropout=0.0):
+        super().__init__()
+        self.norm = AdaRMSNorm(d_model, d_model)
+        self.up_proj = apply_wd(nn.Linear(d_model, d_ff * 2, bias=False))
+        self.act = GEGLU()
+        self.dropout = nn.Dropout(dropout)
+        self.down_proj = apply_wd(zero_init(nn.Linear(d_ff, d_model, bias=False)))
+
+    def forward(self, x, cond):
+        skip = x
+        x = self.norm(x, cond)
+        x = self.up_proj(x)
+        x = self.act(x)
+        x = self.dropout(x)
+        x = self.down_proj(x)
         return x + skip
 
 
@@ -226,10 +255,10 @@ class MappingFeedForwardBlock(nn.Module):
     def __init__(self, d_model, d_ff, dropout=0.0):
         super().__init__()
         self.norm = RMSNorm(d_model)
-        self.up_proj = nn.Linear(d_model, d_ff * 2, bias=False)
+        self.up_proj = apply_wd(nn.Linear(d_model, d_ff * 2, bias=False))
         self.act = GEGLU()
         self.dropout = nn.Dropout(dropout)
-        self.down_proj = zero_init(nn.Linear(d_ff, d_model, bias=False))
+        self.down_proj = apply_wd(zero_init(nn.Linear(d_ff, d_model, bias=False)))
 
     def forward(self, x):
         skip = x
@@ -269,7 +298,7 @@ class ImageTransformerDenoiserModelV1(nn.Module):
         self.aug_emb = layers.FourierFeatures(9, d_model)
         self.aug_in_proj = nn.Linear(d_model, d_model, bias=False)
         self.class_emb = nn.Embedding(num_classes, d_model) if num_classes else None
-        self.mapping = MappingNetwork(2, d_model, d_ff, dropout=dropout)
+        self.mapping = tag_module(MappingNetwork(2, d_model, d_ff, dropout=dropout), "mapping")
 
         self.in_proj = nn.Linear(self.patch_in.d_out, d_model, bias=False)
         self.blocks = nn.ModuleList([TransformerBlock(d_model, d_ff, 64, dropout=dropout) for _ in range(n_layers)])
@@ -281,27 +310,15 @@ class ImageTransformerDenoiserModelV1(nn.Module):
             block.self_attn.qk_norm.proj_()
 
     def param_groups(self, base_lr=5e-4, mapping_lr_scale=1 / 3):
-        mapping_names, wd_names = [], []
-        for name, _ in self.named_parameters():
-            if name.startswith("mapping") or "norm.linear" in name:
-                mapping_names.append(name)
-            if (name.startswith("mapping") or name.startswith("blocks")) and name.endswith(".weight"):
-                wd_names.append(name)
-        mapping_wd, mapping_no_wd, wd, no_wd = [], [], [], []
-        for name, param in self.named_parameters():
-            if name in wd_names and name in mapping_names:
-                mapping_wd.append(param)
-            elif name not in wd_names and name in mapping_names:
-                mapping_no_wd.append(param)
-            elif name in wd_names and name not in mapping_names:
-                wd.append(param)
-            else:
-                no_wd.append(param)
+        wd = filter_params(lambda tags: "wd" in tags and "mapping" not in tags, self)
+        no_wd = filter_params(lambda tags: "wd" not in tags and "mapping" not in tags, self)
+        mapping_wd = filter_params(lambda tags: "wd" in tags and "mapping" in tags, self)
+        mapping_no_wd = filter_params(lambda tags: "wd" not in tags and "mapping" in tags, self)
         groups = [
-            {"params": wd, "lr": base_lr},
-            {"params": no_wd, "lr": base_lr, "weight_decay": 0.0},
-            {"params": mapping_wd, "lr": base_lr * mapping_lr_scale},
-            {"params": mapping_no_wd, "lr": base_lr * mapping_lr_scale, "weight_decay": 0.0}
+            {"params": list(wd), "lr": base_lr},
+            {"params": list(no_wd), "lr": base_lr, "weight_decay": 0.0},
+            {"params": list(mapping_wd), "lr": base_lr * mapping_lr_scale},
+            {"params": list(mapping_no_wd), "lr": base_lr * mapping_lr_scale, "weight_decay": 0.0}
         ]
         return groups
 
