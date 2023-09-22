@@ -1,11 +1,43 @@
+from functools import lru_cache, reduce
 import math
 
+from dctorch import functional as df
 from einops import rearrange, repeat
 import torch
 from torch import nn
 from torch.nn import functional as F
 
 from . import sampling, utils
+
+
+# Helper functions
+
+
+def dct(x):
+    if x.ndim == 3:
+        return df.dct(x)
+    if x.ndim == 4:
+        return df.dct2(x)
+    if x.ndim == 5:
+        return df.dct3(x)
+    raise ValueError(f'Unsupported dimensionality {x.ndim}')
+
+
+@lru_cache
+def freq_weight_1d(n, scales=0, dtype=None, device=None):
+    ramp = torch.linspace(0.5 / n, 0.5, n, dtype=dtype, device=device)
+    weights = -torch.log2(ramp)
+    if scales >= 1:
+        weights = torch.clamp_max(weights, scales)
+    return weights
+
+
+@lru_cache
+def freq_weight_nd(shape, scales=0, dtype=None, device=None):
+    indexers = [[slice(None) if i == j else None for j in range(len(shape))] for i in range(len(shape))]
+    weights = [freq_weight_1d(n, scales, dtype, device)[ix] for n, ix in zip(shape, indexers)]
+    return reduce(torch.minimum, weights)
+
 
 # Karras et al. preconditioned denoiser
 
@@ -47,12 +79,11 @@ class Denoiser(nn.Module):
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
         target = (input - c_skip * noised_input) / c_out
-        losses = (model_output - target).pow(2).flatten(1).mean(1) * c_weight
-        for _ in range(1, self.scales):
-            model_output = F.interpolate(model_output, scale_factor=0.5, mode='bicubic', align_corners=False, antialias=True)
-            target = F.interpolate(target, scale_factor=0.5, mode='bicubic', align_corners=False, antialias=True)
-            losses = losses + (model_output - target).pow(2).flatten(1).mean(1) * c_weight
-        return losses
+        if self.scales == 1:
+            return ((model_output - target) ** 2).flatten(1).mean(1) * c_weight
+        sq_error = dct(model_output - target) ** 2
+        f_weight = freq_weight_nd(sq_error.shape[2:], self.scales, dtype=sq_error.dtype, device=sq_error.device)
+        return (sq_error * f_weight).flatten(1).mean(1) * c_weight
 
     def forward(self, input, sigma, **kwargs):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]

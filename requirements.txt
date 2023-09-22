@@ -1,6 +1,7 @@
 accelerate
 clean-fid
 clip-anytorch
+dctorch
 einops
 jsonmerge
 kornia
