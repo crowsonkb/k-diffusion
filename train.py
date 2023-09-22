@@ -388,7 +388,7 @@ def main():
 
     try:
         while True:
-            for batch in tqdm(train_dl, disable=not accelerator.is_main_process):
+            for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
                 with accelerator.accumulate(model):
                     reals, _, aug_cond = batch[image_key]
                     class_cond, extra_args = None, {}
