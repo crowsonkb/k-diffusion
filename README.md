@@ -1,12 +1,12 @@
 # k-diffusion
 
-An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch.
+An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
 ## Installation
 
 `k-diffusion` can be installed via PyPI (`pip install k-diffusion`) but it will not include training and inference scripts, only library code that others can depend on. To run the training and inference scripts, clone this repository and run `pip install -e <path to repository>`.
 
-## Training:
+## Training
 
 To train models:
 
@@ -17,7 +17,7 @@ $ ./train.py --config CONFIG_FILE --name RUN_NAME
 For instance, to train a model on MNIST:
 
 ```sh
-$ ./train.py --config configs/config_mnist.json --name RUN_NAME
+$ ./train.py --config configs/config_mnist_transformer.json --name RUN_NAME
 ```
 
 The configuration file allows you to specify the dataset type. Currently supported types are `"imagefolder"` (finds all images in that folder and its subfolders, recursively), `"cifar10"` (CIFAR-10), and `"mnist"` (MNIST). `"huggingface"` [Hugging Face Datasets](https://huggingface.co/docs/datasets/index) is also supported.
@@ -28,15 +28,15 @@ Multi-GPU and multi-node training is supported with [Hugging Face Accelerate](ht
 $ accelerate config
 ```
 
-on all nodes, then running:
+then running:
 
 ```sh
 $ accelerate launch train.py --config CONFIG_FILE --name RUN_NAME
 ```
 
-on all nodes.
+## Enhancements/additional features
 
-## Enhancements/additional features:
+- k-diffusion has support for training transformer-based diffusion models (like [DiT](https://arxiv.org/abs/2212.09748) but improved).
 
 - k-diffusion supports a soft version of [Min-SNR loss weighting](https://arxiv.org/abs/2303.09556) for improved training at high resolutions with less hyperparameters than the loss weighting used in Karras et al. (2022).
 
@@ -52,8 +52,6 @@ on all nodes.
 
 - k-diffusion can calculate, during training, the gradient noise scale (1 / SNR), from _An Empirical Model of Large-Batch Training_, https://arxiv.org/abs/1812.06162).
 
-## To do:
-
-- Anything except unconditional image diffusion models
+## To do
 
 - Latent diffusion
