@@ -5,6 +5,7 @@
 import argparse
 from copy import deepcopy
 from functools import partial
+import importlib.util
 import math
 import json
 from pathlib import Path
@@ -197,6 +198,14 @@ def main():
         train_set = load_dataset(dataset_config['location'])
         train_set.set_transform(partial(K.utils.hf_datasets_augs_helper, transform=tf, image_key=dataset_config['image_key']))
         train_set = train_set['train']
+    elif dataset_config['type'] == 'custom':
+        location = (Path(args.config).parent / dataset_config['location']).resolve()
+        spec = importlib.util.spec_from_file_location('custom_dataset', location)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        get_dataset = getattr(module, dataset_config.get('get_dataset', 'get_dataset'))
+        custom_dataset_config = dataset_config.get('config', {})
+        train_set = get_dataset(custom_dataset_config, transform=tf)
     else:
         raise ValueError('Invalid dataset type')
 
