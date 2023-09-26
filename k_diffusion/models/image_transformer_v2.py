@@ -1,7 +1,7 @@
 """k-diffusion transformer diffusion models, version 2."""
 
 from dataclasses import dataclass
-from functools import reduce, partial
+from functools import partial, reduce
 import math
 from typing import Union
 
