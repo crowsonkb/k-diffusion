@@ -6,7 +6,6 @@ import math
 from typing import Union
 
 from einops import rearrange
-import natten
 import torch
 from torch import nn
 import torch._dynamo
@@ -16,6 +15,11 @@ from . import flags
 from .. import layers
 from .axial_rope import make_axial_pos
 
+
+try:
+    import natten
+except ImportError:
+    natten = None
 
 try:
     import flash_attn
@@ -285,6 +289,8 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
             q = apply_rotary_emb(q, cos, sin)
             k = apply_rotary_emb(k, cos, sin)
         q = q / math.sqrt(self.d_head)
+        if natten is None:
+            raise ModuleNotFoundError("natten is required for neighborhood attention")
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
         a = torch.softmax(qk, dim=-1)
         x = natten.functional.natten2dav(a, v, self.kernel_size, 1)
