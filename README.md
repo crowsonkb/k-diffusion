@@ -4,7 +4,7 @@ An implementation of [Elucidating the Design Space of Diffusion-Based Generative
 
 ## Hourglass transformer experimental branch
 
-**This branch is under active development.**
+**This branch is under active development. Models of the new type that are trained with it may stop working due to backward incompatible changes.**
 
 This branch of `k-diffusion` is for testing an experimental model type, `image_transformer_v2`, that uses ideas from [Hourglass Transformer](https://arxiv.org/abs/2110.13711) and [DiT](https://arxiv.org/abs/2212.09748).
 
