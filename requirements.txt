@@ -6,7 +6,6 @@ einops
 jsonmerge
 kornia
 Pillow
-rotary-embedding-torch
 safetensors
 scikit-image
 scipy
