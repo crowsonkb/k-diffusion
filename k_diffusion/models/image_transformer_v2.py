@@ -248,10 +248,10 @@ class SelfAttentionBlock(nn.Module):
             x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
-            q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None], 1e-6)
+            q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None] * k.shape[-1]**0.5, 1e-6)
             q = apply_rotary_emb(q, cos, sin)
             k = apply_rotary_emb(k, cos, sin)
-            x = F.scaled_dot_product_attention(q, k, v, scale=1.0)
+            x = F.scaled_dot_product_attention(q, k, v)
             x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         x = self.dropout(x)
         x = self.out_proj(x)
