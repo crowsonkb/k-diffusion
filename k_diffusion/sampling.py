@@ -4,7 +4,6 @@ from scipy import integrate
 import torch
 from torch import nn
 from torchdiffeq import odeint
-import torchsde
 from tqdm.auto import trange, tqdm
 
 from . import utils
@@ -63,7 +62,7 @@ def default_noise_sampler(x):
 
 
 class BatchedBrownianTree:
-    """A wrapper around torchsde.BrownianTree that enables batches of entropy."""
+    """A wrapper around torchsde_brownian.BrownianTree that enables batches of entropy."""
 
     def __init__(self, x, t0, t1, seed=None, **kwargs):
         t0, t1, self.sign = self.sort(t0, t1)
@@ -77,7 +76,8 @@ class BatchedBrownianTree:
         except TypeError:
             seed = [seed]
             self.batched = False
-        self.trees = [torchsde.BrownianTree(t0, w0, t1, entropy=s, **kwargs) for s in seed]
+        from torchsde_brownian import BrownianTree
+        self.trees = [BrownianTree(t0, w0, t1, entropy=s, **kwargs) for s in seed]
 
     @staticmethod
     def sort(a, b):
@@ -90,7 +90,7 @@ class BatchedBrownianTree:
 
 
 class BrownianTreeNoiseSampler:
-    """A noise sampler backed by a torchsde.BrownianTree.
+    """A noise sampler backed by a Brownian Tree.
 
     Args:
         x (Tensor): The tensor whose shape, device and dtype to use to generate
