@@ -55,6 +55,21 @@ def load_config(path_or_dict):
             'weight_decay': 1e-4,
         },
     }
+    defaults_image_transformer_v2 = {
+        'model': {
+            'd_ffs': None,
+            'augment_wrapper': False,
+            'skip_stages': 0,
+            'has_variance': False,
+        },
+        'optimizer': {
+            'type': 'adamw',
+            'lr': 5e-4,
+            'betas': [0.9, 0.99],
+            'eps': 1e-8,
+            'weight_decay': 1e-4,
+        },
+    }
     defaults = {
         'model': {
             'sigma_data': 1.,
@@ -101,6 +116,13 @@ def load_config(path_or_dict):
         config = merge(defaults_image_transformer_v1, config)
         if not config['model']['d_ff']:
             config['model']['d_ff'] = round_to_power_of_two(config['model']['width'] * 8 / 3, tol=0.05)
+    elif config['model']['type'] == 'image_transformer_v2':
+        config = merge(defaults_image_transformer_v2, config)
+        if not config['model']['d_ffs']:
+            d_ffs = []
+            for width in config['model']['widths']:
+                d_ffs.append(round_to_power_of_two(width * 8 / 3, tol=0.05))
+            config['model']['d_ffs'] = d_ffs
     return merge(defaults, config)
 
 
@@ -137,6 +159,26 @@ def make_model(config):
             num_classes=num_classes + 1 if num_classes else 0,
             dropout=config['dropout_rate'],
             sigma_data=config['sigma_data'],
+        )
+    elif config['type'] == 'image_transformer_v2':
+        assert len(config['widths']) == len(config['depths'])
+        assert len(config['widths']) == len(config['d_ffs'])
+        levels = []
+        for i, (depth, width, d_ff) in enumerate(zip(config['depths'], config['widths'], config['d_ffs'])):
+            if i < len(config['depths']) - 1:
+                self_attn = models.image_transformer_v2.NeighborhoodAttentionSpec(64, 7)
+            else:
+                self_attn = models.image_transformer_v2.GlobalAttentionSpec(64)
+            levels.append(models.image_transformer_v2.LevelSpec(depth, width, d_ff, self_attn))
+        mapping = models.image_transformer_v2.MappingSpec(2, config['widths'][-1], config['d_ffs'][-1])
+        model = models.ImageTransformerDenoiserModelV2(
+            levels=levels,
+            mapping=mapping,
+            in_channels=config['input_channels'],
+            out_channels=config['input_channels'],
+            patch_size=config['patch_size'],
+            num_classes=num_classes + 1 if num_classes else 0,
+            dropout=config['dropout_rate'],
         )
     else:
         raise ValueError(f'unsupported model type {config["type"]}')
