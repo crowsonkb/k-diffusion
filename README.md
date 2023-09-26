@@ -2,6 +2,36 @@
 
 An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
+## Hourglass transformer experimental branch
+
+**This branch is under active development.**
+
+This branch of `k-diffusion` is for testing an experimental model type, `image_transformer_v2`, that uses ideas from [Hourglass Transformer](https://arxiv.org/abs/2110.13711) and [DiT](https://arxiv.org/abs/2212.09748).
+
+### Requirements
+
+To use the new model type you will need to install custom CUDA kernels:
+
+* [NATTEN](https://github.com/SHI-Labs/NATTEN/tree/main) for the sparse (neighborhood) attention used at low levels of the hierarchy.
+
+* [FlashAttention-2](https://github.com/Dao-AILab/flash-attention) for global attention and rotary position embeddings. It will fall back to plain PyTorch for both of these if it is not installed.
+
+Also, you should make sure your PyTorch installation is capable of using `torch.compile()` (for instance, if you are using Python 3.11, you should use a PyTorch nightly build instead of 2.0). It will fall back to eager mode if `torch.compile()` is not available, but it will be slower and use more memory in training.
+
+### Usage
+
+In the `"model"` key of the config file:
+
+1. Set the `"type"` key to `"image_transformer_v2"`.
+
+1. The base patch size is set by the `"patch_size"` key, like `"patch_size": [4, 4]`.
+
+1. Model depth per level of the hierarchy is specified by the `"depths"` config key, like `"depths": [2, 2, 4]`. This constructs a model with two transformer layers at the first level (4x4 patches), followed by two at the second level (8x8 patches), followed by four at the highest level (16x16 patches), followed by two more at the second level, followed by two more at the first level.
+
+    All levels of the hierarchy except for the highest use sparse (neighborhood) attention with a 7x7 kernel. The highest level uses global attention. So the token count at every level but the highest can be very large.
+
+1. Model width per level of the hierarchy is specified by the `"widths"` config key, like `"widths": [192, 384, 768]`. The widths must be multiples of the attention head dimension, which is 64.
+
 ## Installation
 
 `k-diffusion` can be installed via PyPI (`pip install k-diffusion`) but it will not include training and inference scripts, only library code that others can depend on. To run the training and inference scripts, clone this repository and run `pip install -e <path to repository>`.
