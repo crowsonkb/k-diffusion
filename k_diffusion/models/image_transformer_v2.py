@@ -266,6 +266,7 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         self.kernel_size = kernel_size
         self.norm = AdaRMSNorm(d_model, cond_features)
         self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
+        self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
         self.pos_emb = AxialRoPE(d_head // 2)
         self.dropout = nn.Dropout(dropout)
         self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
@@ -281,14 +282,15 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
             qkv = rearrange(qkv, "n h w (t nh e) -> n (h w) t nh e", t=3, e=self.d_head)
             pos = rearrange(pos, "... h w e -> ... (h w) e").to(qkv.dtype)
             cos, sin = self.pos_emb(pos)
+            qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
             qkv = rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
             q, k, v = rearrange(qkv, "n (h w) t nh e -> t n nh h w e", h=skip.shape[-3], w=skip.shape[-2])
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
+            q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
             cos, sin = self.pos_emb(pos)
             q = apply_rotary_emb(q, cos, sin)
             k = apply_rotary_emb(k, cos, sin)
-        q = q / math.sqrt(self.d_head)
         if natten is None:
             raise ModuleNotFoundError("natten is required for neighborhood attention")
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
