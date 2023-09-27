@@ -122,6 +122,7 @@ def main():
         seeds = torch.randint(-2 ** 63, 2 ** 63 - 1, [accelerator.num_processes], generator=torch.Generator().manual_seed(args.seed))
         torch.manual_seed(seeds[accelerator.process_index])
     demo_gen = torch.Generator().manual_seed(torch.randint(-2 ** 63, 2 ** 63 - 1, ()).item())
+    timer = K.utils.Timer()
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
@@ -262,6 +263,7 @@ def main():
         if args.gns and ckpt.get('gns_stats', None) is not None:
             gns_stats.load_state_dict(ckpt['gns_stats'])
         demo_gen.set_state(ckpt['demo_gen'])
+        timer = K.utils.Timer(ckpt.get('elapsed', 0.0))
 
         del ckpt
     else:
@@ -297,7 +299,7 @@ def main():
             print('Computing features for reals...')
         reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
         if accelerator.is_main_process:
-            metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'loss', 'fid', 'kid'])
+            metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'time', 'loss', 'fid', 'kid'])
         del train_iter
 
     cfg_scale = 1.
@@ -362,7 +364,7 @@ def main():
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             if accelerator.is_main_process:
-                metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
+                metrics_log.write(step, timer.get(), ema_stats['loss'], fid.item(), kid.item())
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
@@ -385,6 +387,7 @@ def main():
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
             'ema_stats': ema_stats,
             'demo_gen': demo_gen.get_state(),
+            'elapsed': timer.get(),
         }
         accelerator.save(obj, filename)
         if accelerator.is_main_process:
@@ -398,6 +401,7 @@ def main():
     try:
         while True:
             for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
+                timer.start()
                 with accelerator.accumulate(model):
                     reals, _, aug_cond = batch[image_key]
                     class_cond, extra_args = None, {}
@@ -451,6 +455,7 @@ def main():
                     wandb.log(log_dict, step=step)
 
                 step += 1
+                timer.stop()
 
                 if step % args.demo_every == 0:
                     demo()
