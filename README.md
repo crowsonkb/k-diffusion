@@ -26,11 +26,21 @@ In the `"model"` key of the config file:
 
 1. The base patch size is set by the `"patch_size"` key, like `"patch_size": [4, 4]`.
 
-1. Model depth per level of the hierarchy is specified by the `"depths"` config key, like `"depths": [2, 2, 4]`. This constructs a model with two transformer layers at the first level (4x4 patches), followed by two at the second level (8x8 patches), followed by four at the highest level (16x16 patches), followed by two more at the second level, followed by two more at the first level.
+1. Model depth for each level of the hierarchy is specified by the `"depths"` config key, like `"depths": [2, 2, 4]`. This constructs a model with two transformer layers at the first level (4x4 patches), followed by two at the second level (8x8 patches), followed by four at the highest level (16x16 patches), followed by two more at the second level, followed by two more at the first level.
 
-    All levels of the hierarchy except for the highest use sparse (neighborhood) attention with a 7x7 kernel. The highest level uses global attention. So the token count at every level but the highest can be very large.
+1. Model width for each level of the hierarchy is specified by the `"widths"` config key, like `"widths": [192, 384, 768]`. The widths must be multiples of the attention head dimension, which is 64.
 
-1. Model width per level of the hierarchy is specified by the `"widths"` config key, like `"widths": [192, 384, 768]`. The widths must be multiples of the attention head dimension, which is 64.
+1. The self-attention mechanism for each level of the hierarchy is specified by the `"self_attns"` config key, like:
+
+    ```json
+    "self_attns": [
+        {"type": "neighborhood", "d_head": 64, "kernel_size": 7},
+        {"type": "neighborhood", "d_head": 64, "kernel_size": 7},
+        {"type": "global", "d_head": 64},
+    ]
+    ```
+
+    If not specified, all levels of the hierarchy except for the highest use neighborhood attention with 64 dim heads and a 7x7 kernel. The highest level uses global attention with 64 dim heads. So the token count at every level but the highest can be very large.
 
 ## Installation
 

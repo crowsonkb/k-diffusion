@@ -58,6 +58,7 @@ def load_config(path_or_dict):
     defaults_image_transformer_v2 = {
         'model': {
             'd_ffs': None,
+            'self_attns': None,
             'augment_wrapper': False,
             'skip_stages': 0,
             'has_variance': False,
@@ -123,6 +124,13 @@ def load_config(path_or_dict):
             for width in config['model']['widths']:
                 d_ffs.append(width * 3)
             config['model']['d_ffs'] = d_ffs
+        if not config['model']['self_attns']:
+            self_attns = []
+            default_neighborhood = {"type": "neighborhood", "d_head": 64, "kernel_size": 7}
+            default_global = {"type": "global", "d_head": 64}
+            for i in range(len(config['model']['widths'])):
+                self_attns.append(default_neighborhood if i < len(config['model']['widths']) - 1 else default_global)
+            config['model']['self_attns'] = self_attns
     return merge(defaults, config)
 
 
@@ -164,11 +172,13 @@ def make_model(config):
         assert len(config['widths']) == len(config['depths'])
         assert len(config['widths']) == len(config['d_ffs'])
         levels = []
-        for i, (depth, width, d_ff) in enumerate(zip(config['depths'], config['widths'], config['d_ffs'])):
-            if i < len(config['depths']) - 1:
-                self_attn = models.image_transformer_v2.NeighborhoodAttentionSpec(64, 7)
+        for i, (depth, width, d_ff, self_attn) in enumerate(zip(config['depths'], config['widths'], config['d_ffs'], config['self_attns'])):
+            if self_attn['type'] == 'neighborhood':
+                self_attn = models.image_transformer_v2.NeighborhoodAttentionSpec(self_attn.get('d_head', 64), self_attn.get('kernel_size', 7))
+            elif self_attn['type'] == 'global':
+                self_attn = models.image_transformer_v2.GlobalAttentionSpec(self_attn.get('d_head', 64))
             else:
-                self_attn = models.image_transformer_v2.GlobalAttentionSpec(64)
+                raise ValueError(f'unsupported self attention type {self_attn["type"]}')
             levels.append(models.image_transformer_v2.LevelSpec(depth, width, d_ff, self_attn))
         mapping = models.image_transformer_v2.MappingSpec(2, config['widths'][-1], config['d_ffs'][-1])
         model = models.ImageTransformerDenoiserModelV2(
