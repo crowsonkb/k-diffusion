@@ -455,7 +455,7 @@ class ImageTransformerDenoiserModelV2(nn.Module):
         self.mapping_cond_in_proj = nn.Linear(mapping_cond_dim, mapping.width, bias=False) if mapping_cond_dim else None
         self.mapping = tag_module(MappingNetwork(mapping.depth, mapping.width, mapping.d_ff, dropout=dropout), "mapping")
 
-        self.d_levels, self.u_levels, self.skip_scales = nn.ModuleList(), nn.ModuleList(), nn.ParameterList()
+        self.down_levels, self.up_levels = nn.ModuleList(), nn.ModuleList()
         for i, spec in enumerate(levels):
             if isinstance(spec.self_attn, GlobalAttentionSpec):
                 layer_factory = partial(TransformerLayer, spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, dropout=dropout)
@@ -465,8 +465,8 @@ class ImageTransformerDenoiserModelV2(nn.Module):
                 raise ValueError(f"unsupported self attention spec {spec.self_attn}")
 
             if i < len(levels) - 1:
-                self.d_levels.append(Level([layer_factory() for _ in range(spec.depth)]))
-                self.u_levels.append(Level([layer_factory() for _ in range(spec.depth)]))
+                self.down_levels.append(Level([layer_factory() for _ in range(spec.depth)]))
+                self.up_levels.append(Level([layer_factory() for _ in range(spec.depth)]))
             else:
                 self.mid_level = Level([layer_factory() for _ in range(spec.depth)])
 
@@ -514,8 +514,8 @@ class ImageTransformerDenoiserModelV2(nn.Module):
 
         # Hourglass transformer
         skips, poses = [], []
-        for d_level, merge in zip(self.d_levels, self.merges):
-            x = d_level(x, pos, cond)
+        for down_level, merge in zip(self.down_levels, self.merges):
+            x = down_level(x, pos, cond)
             skips.append(x)
             poses.append(pos)
             x = merge(x)
@@ -523,10 +523,10 @@ class ImageTransformerDenoiserModelV2(nn.Module):
 
         x = self.mid_level(x, pos, cond)
 
-        for u_level, split, skip_scale, skip, pos in reversed(list(zip(self.u_levels, self.splits, self.skip_scales, skips, poses))):
+        for up_level, split, skip_scale, skip, pos in reversed(list(zip(self.up_levels, self.splits, self.skip_scales, skips, poses))):
             x = split(x)
             x = torch.addcmul(x, skip, skip_scale)
-            x = u_level(x, pos, cond)
+            x = up_level(x, pos, cond)
 
         # Unpatching
         x = self.out_norm(x)
