@@ -121,7 +121,7 @@ def load_config(path_or_dict):
         if not config['model']['d_ffs']:
             d_ffs = []
             for width in config['model']['widths']:
-                d_ffs.append(round_to_power_of_two(width * 8 / 3, tol=0.05))
+                d_ffs.append(width * 3)
             config['model']['d_ffs'] = d_ffs
     return merge(defaults, config)
 
