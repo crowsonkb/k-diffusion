@@ -178,30 +178,22 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_emb(x, cos, sin):
+@compile
+def _apply_rotary_emb_inplace(x, cos, sin, conjugate=False):
     ro_dim = cos.shape[-1] * 2
     assert ro_dim <= x.shape[-1]
+    sin = -sin if conjugate else sin
     cos = torch.cat((cos, cos), dim=-1)
     sin = torch.cat((sin, sin), dim=-1)
-    return torch.cat(
-        [x[..., :ro_dim] * cos + rotate_half(x[..., :ro_dim]) * sin, x[..., ro_dim:]], dim=-1,
-    )
-
-
-@compile
-def _apply_rotary_emb_inplace_forward(x, cos, sin):
-    return x.copy_(apply_rotary_emb(x, cos, sin))
-
-
-@compile
-def _apply_rotary_emb_inplace_backward(grad_output, cos, sin):
-    return apply_rotary_emb(grad_output, cos, -sin)
+    rotated = rotate_half(x[..., :ro_dim])
+    x[..., :ro_dim].mul_(cos).addcmul_(rotated, sin)
+    return x
 
 
 class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
     @staticmethod
     def forward(x, cos, sin):
-        return _apply_rotary_emb_inplace_forward(x, cos, sin)
+        return _apply_rotary_emb_inplace(x, cos, sin)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
@@ -211,7 +203,7 @@ class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         cos, sin = ctx.saved_tensors
-        return _apply_rotary_emb_inplace_backward(grad_output, cos, sin), None, None
+        return _apply_rotary_emb_inplace(grad_output, cos, sin, conjugate=True), None, None
 
 
 def apply_rotary_emb_(x, cos, sin):
