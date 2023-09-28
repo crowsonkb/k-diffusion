@@ -188,6 +188,36 @@ def apply_rotary_emb(x, cos, sin):
     )
 
 
+@compile
+def _apply_rotary_emb_inplace_forward(x, cos, sin):
+    return x.copy_(apply_rotary_emb(x, cos, sin))
+
+
+@compile
+def _apply_rotary_emb_inplace_backward(grad_output, cos, sin):
+    return apply_rotary_emb(grad_output, cos, -sin)
+
+
+class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
+    @staticmethod
+    def forward(x, cos, sin):
+        return _apply_rotary_emb_inplace_forward(x, cos, sin)
+
+    @staticmethod
+    def setup_context(ctx, inputs, output):
+        _, cos, sin = inputs
+        ctx.save_for_backward(cos, sin)
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        cos, sin = ctx.saved_tensors
+        return _apply_rotary_emb_inplace_backward(grad_output, cos, sin), None, None
+
+
+def apply_rotary_emb_(x, cos, sin):
+    return ApplyRotaryEmbeddingInplace.apply(x, cos, sin)
+
+
 class AxialRoPE(nn.Module):
     def __init__(self, dim):
         super().__init__()
@@ -207,14 +237,12 @@ class AxialRoPE(nn.Module):
 # Transformer layers
 
 
-def use_flash_2(x, check_dtype=True):
+def use_flash_2(x):
     if not flags.get_use_flash_attention_2():
         return False
     if flash_attn is None:
         return False
     if x.device.type != "cuda":
-        return False
-    if check_dtype and x.dtype not in (torch.float16, torch.bfloat16):
         return False
     return True
 
@@ -249,8 +277,8 @@ class SelfAttentionBlock(nn.Module):
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
             q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None] * k.shape[-1]**0.5, 1e-6)
-            q = apply_rotary_emb(q, cos, sin)
-            k = apply_rotary_emb(k, cos, sin)
+            q = apply_rotary_emb_(q, cos, sin)
+            k = apply_rotary_emb_(k, cos, sin)
             x = F.scaled_dot_product_attention(q, k, v)
             x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         x = self.dropout(x)
@@ -278,19 +306,11 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         skip = x
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
-        if use_flash_2(qkv, check_dtype=False):
-            qkv = rearrange(qkv, "n h w (t nh e) -> n (h w) t nh e", t=3, e=self.d_head)
-            pos = rearrange(pos, "... h w e -> ... (h w) e").to(qkv.dtype)
-            cos, sin = self.pos_emb(pos)
-            qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
-            qkv = rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
-            q, k, v = rearrange(qkv, "n (h w) t nh e -> t n nh h w e", h=skip.shape[-3], w=skip.shape[-2])
-        else:
-            q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
-            q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
-            cos, sin = self.pos_emb(pos)
-            q = apply_rotary_emb(q, cos, sin)
-            k = apply_rotary_emb(k, cos, sin)
+        q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
+        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
+        cos, sin = self.pos_emb(pos)
+        q = apply_rotary_emb_(q, cos, sin)
+        k = apply_rotary_emb_(k, cos, sin)
         if natten is None:
             raise ModuleNotFoundError("natten is required for neighborhood attention")
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
