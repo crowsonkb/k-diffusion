@@ -173,20 +173,13 @@ class AdaRMSNorm(nn.Module):
 # Rotary position embeddings
 
 
-def rotate_half(x):
-    x1, x2 = x.chunk(2, dim=-1)
-    return torch.cat((-x2, x1), dim=-1)
-
-
-@compile
 def _apply_rotary_emb_inplace(x, cos, sin, conjugate=False):
-    ro_dim = cos.shape[-1] * 2
-    assert ro_dim <= x.shape[-1]
-    sin = -sin if conjugate else sin
-    cos = torch.cat((cos, cos), dim=-1)
-    sin = torch.cat((sin, sin), dim=-1)
-    rotated = rotate_half(x[..., :ro_dim])
-    x[..., :ro_dim].mul_(cos).addcmul_(rotated, sin)
+    d = cos.shape[-1]
+    assert d * 2 <= x.shape[-1]
+    x1, x2 = x[..., :d], x[..., d : d * 2]
+    tmp = x1.clone()
+    x1.mul_(cos).addcmul_(x2, sin, value=1 if conjugate else -1)
+    x2.mul_(cos).addcmul_(tmp, sin, value=-1 if conjugate else 1)
     return x
 
 
