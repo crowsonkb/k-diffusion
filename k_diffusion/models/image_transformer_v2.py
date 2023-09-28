@@ -271,7 +271,9 @@ class SelfAttentionBlock(nn.Module):
         if use_flash_2(qkv):
             qkv = rearrange(qkv, "n h w (t nh e) -> n (h w) t nh e", t=3, e=self.d_head)
             qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
-            qkv = rotary.apply_rotary_emb_qkv_(qkv, cos, sin)
+            cos = torch.stack((cos, cos, torch.ones_like(cos)), dim=-2).unsqueeze(-2)
+            sin = torch.stack((sin, sin, torch.zeros_like(sin)), dim=-2).unsqueeze(-2)
+            qkv = apply_rotary_emb_(qkv, cos, sin)
             x = flash_attn.flash_attn_qkvpacked_func(qkv, softmax_scale=1.0)
             x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         else:
