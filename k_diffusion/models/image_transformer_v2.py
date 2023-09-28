@@ -350,6 +350,16 @@ class NeighborhoodTransformerLayer(nn.Module):
         return x
 
 
+class NoAttentionTransformerLayer(nn.Module):
+    def __init__(self, d_model, d_ff, cond_features, dropout=0.0):
+        super().__init__()
+        self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
+
+    def forward(self, x, pos, cond):
+        x = checkpoint(self.ff, x, cond)
+        return x
+
+
 class Level(nn.ModuleList):
     def forward(self, x, *args, **kwargs):
         for layer in self:
@@ -405,7 +415,7 @@ class TokenMerge(nn.Module):
         return self.proj(x)
 
 
-class TokenSplit(nn.Module):
+class TokenSplitWithoutSkip(nn.Module):
     def __init__(self, in_features, out_features, patch_size=(2, 2)):
         super().__init__()
         self.h = patch_size[0]
@@ -415,6 +425,20 @@ class TokenSplit(nn.Module):
     def forward(self, x):
         x = self.proj(x)
         return rearrange(x, "... h w (nh nw e) -> ... (h nh) (w nw) e", nh=self.h, nw=self.w)
+
+
+class TokenSplit(nn.Module):
+    def __init__(self, in_features, out_features, patch_size=(2, 2)):
+        super().__init__()
+        self.h = patch_size[0]
+        self.w = patch_size[1]
+        self.proj = nn.Linear(in_features, out_features * self.h * self.w, bias=False)
+        self.fac = nn.Parameter(torch.ones(1) * 0.5)
+
+    def forward(self, x, skip):
+        x = self.proj(x)
+        x = rearrange(x, "... h w (nh nw e) -> ... (h nh) (w nw) e", nh=self.h, nw=self.w)
+        return torch.lerp(x, skip, self.fac.to(x.dtype))
 
 
 # Configuration
@@ -431,11 +455,16 @@ class NeighborhoodAttentionSpec:
 
 
 @dataclass
+class NoAttentionSpec:
+    pass
+
+
+@dataclass
 class LevelSpec:
     depth: int
     width: int
     d_ff: int
-    self_attn: Union[GlobalAttentionSpec, NeighborhoodAttentionSpec]
+    self_attn: Union[GlobalAttentionSpec, NeighborhoodAttentionSpec, NoAttentionSpec]
 
 
 @dataclass
@@ -468,6 +497,8 @@ class ImageTransformerDenoiserModelV2(nn.Module):
                 layer_factory = partial(TransformerLayer, spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, dropout=dropout)
             elif isinstance(spec.self_attn, NeighborhoodAttentionSpec):
                 layer_factory = partial(NeighborhoodTransformerLayer, spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.kernel_size, dropout=dropout)
+            elif isinstance(spec.self_attn, NoAttentionSpec):
+                layer_factory = partial(NoAttentionTransformerLayer, spec.width, spec.d_ff, mapping.width, dropout=dropout)
             else:
                 raise ValueError(f"unsupported self attention spec {spec.self_attn}")
 
@@ -479,10 +510,9 @@ class ImageTransformerDenoiserModelV2(nn.Module):
 
         self.merges = nn.ModuleList([TokenMerge(spec_1.width, spec_2.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
         self.splits = nn.ModuleList([TokenSplit(spec_2.width, spec_1.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
-        self.skip_scales = nn.ParameterList([nn.Parameter(torch.ones(1)) for _ in range(len(levels) - 1)])
 
         self.out_norm = RMSNorm(levels[0].width)
-        self.patch_out = TokenSplit(levels[0].width, out_channels, patch_size)
+        self.patch_out = TokenSplitWithoutSkip(levels[0].width, out_channels, patch_size)
         nn.init.zeros_(self.patch_out.proj.weight)
 
     def param_groups(self, base_lr=5e-4, mapping_lr_scale=1 / 3):
@@ -530,9 +560,8 @@ class ImageTransformerDenoiserModelV2(nn.Module):
 
         x = self.mid_level(x, pos, cond)
 
-        for up_level, split, skip_scale, skip, pos in reversed(list(zip(self.up_levels, self.splits, self.skip_scales, skips, poses))):
-            x = split(x)
-            x = torch.addcmul(x, skip, skip_scale)
+        for up_level, split, skip, pos in reversed(list(zip(self.up_levels, self.splits, skips, poses))):
+            x = split(x, skip)
             x = up_level(x, pos, cond)
 
         # Unpatching

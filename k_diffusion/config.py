@@ -177,6 +177,8 @@ def make_model(config):
                 self_attn = models.image_transformer_v2.NeighborhoodAttentionSpec(self_attn.get('d_head', 64), self_attn.get('kernel_size', 7))
             elif self_attn['type'] == 'global':
                 self_attn = models.image_transformer_v2.GlobalAttentionSpec(self_attn.get('d_head', 64))
+            elif self_attn['type'] == 'none':
+                self_attn = models.image_transformer_v2.NoAttentionSpec()
             else:
                 raise ValueError(f'unsupported self attention type {self_attn["type"]}')
             levels.append(models.image_transformer_v2.LevelSpec(depth, width, d_ff, self_attn))
