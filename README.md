@@ -14,7 +14,7 @@ To use the new model type you will need to install custom CUDA kernels:
 
 * [NATTEN](https://github.com/SHI-Labs/NATTEN/tree/main) for the sparse (neighborhood) attention used at low levels of the hierarchy.
 
-* [FlashAttention-2](https://github.com/Dao-AILab/flash-attention) for global attention and rotary position embeddings. It will fall back to plain PyTorch for both of these if it is not installed.
+* [FlashAttention-2](https://github.com/Dao-AILab/flash-attention) for global attention. It will fall back to plain PyTorch if it is not installed.
 
 Also, you should make sure your PyTorch installation is capable of using `torch.compile()` (for instance, if you are using Python 3.11, you should use a PyTorch nightly build instead of 2.0). It will fall back to eager mode if `torch.compile()` is not available, but it will be slower and use more memory in training.
 
