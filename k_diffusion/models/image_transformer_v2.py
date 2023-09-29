@@ -23,10 +23,8 @@ except ImportError:
 
 try:
     import flash_attn
-    from flash_attn.layers import rotary
 except ImportError:
     flash_attn = None
-    rotary = None
 
 
 if flags.get_use_compile():
@@ -172,35 +170,49 @@ class AdaRMSNorm(nn.Module):
 
 # Rotary position embeddings
 
+@compile
+def apply_rotary_emb(x, cos, sin, conj=False):
+    out_dtype = x.dtype
+    dtype = reduce(torch.promote_types, (x.dtype, cos.dtype, sin.dtype, torch.float32))
+    d = cos.shape[-1]
+    assert d * 2 <= x.shape[-1]
+    x1, x2, x3 = x[..., :d], x[..., d : d * 2], x[..., d * 2 :]
+    x1, x2, cos, sin = x1.to(dtype), x2.to(dtype), cos.to(dtype), sin.to(dtype)
+    sin = -sin if conj else sin
+    y1 = (x1 * cos - x2 * sin).to(out_dtype)
+    y2 = (x2 * cos + x1 * sin).to(out_dtype)
+    return torch.cat((y1, y2, x3), dim=-1).to(out_dtype)
 
-def _apply_rotary_emb_inplace(x, cos, sin, conjugate=False):
+
+def _apply_rotary_emb_inplace(x, cos, sin, conj):
     d = cos.shape[-1]
     assert d * 2 <= x.shape[-1]
     x1, x2 = x[..., :d], x[..., d : d * 2]
     tmp = x1.clone()
-    x1.mul_(cos).addcmul_(x2, sin, value=1 if conjugate else -1)
-    x2.mul_(cos).addcmul_(tmp, sin, value=-1 if conjugate else 1)
+    x1.mul_(cos).addcmul_(x2, sin, value=1 if conj else -1)
+    x2.mul_(cos).addcmul_(tmp, sin, value=-1 if conj else 1)
     return x
 
 
 class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
     @staticmethod
-    def forward(x, cos, sin):
-        return _apply_rotary_emb_inplace(x, cos, sin)
+    def forward(x, cos, sin, conj):
+        return _apply_rotary_emb_inplace(x, cos, sin, conj=conj)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        _, cos, sin = inputs
+        _, cos, sin, conj = inputs
         ctx.save_for_backward(cos, sin)
+        ctx.conj = conj
 
     @staticmethod
     def backward(ctx, grad_output):
         cos, sin = ctx.saved_tensors
-        return _apply_rotary_emb_inplace(grad_output, cos, sin, conjugate=True), None, None
+        return _apply_rotary_emb_inplace(grad_output, cos, sin, conj=not ctx.conj), None, None, None
 
 
-def apply_rotary_emb_(x, cos, sin):
-    return ApplyRotaryEmbeddingInplace.apply(x, cos, sin)
+def apply_rotary_emb_(x, cos, sin, conj=False):
+    return ApplyRotaryEmbeddingInplace.apply(x, cos, sin, conj)
 
 
 class AxialRoPE(nn.Module):
@@ -228,6 +240,8 @@ def use_flash_2(x):
     if flash_attn is None:
         return False
     if x.device.type != "cuda":
+        return False
+    if x.dtype not in (torch.float16, torch.bfloat16):
         return False
     return True
 
@@ -258,14 +272,14 @@ class SelfAttentionBlock(nn.Module):
             qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
             cos = torch.stack((cos, cos, torch.ones_like(cos)), dim=-2).unsqueeze(-2)
             sin = torch.stack((sin, sin, torch.zeros_like(sin)), dim=-2).unsqueeze(-2)
-            qkv = apply_rotary_emb_(qkv, cos, sin)
+            qkv = apply_rotary_emb_(qkv, cos, sin, conj=True)
             x = flash_attn.flash_attn_qkvpacked_func(qkv, softmax_scale=1.0)
             x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
             q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None] * k.shape[-1]**0.5, 1e-6)
-            q = apply_rotary_emb_(q, cos, sin)
-            k = apply_rotary_emb_(k, cos, sin)
+            q = apply_rotary_emb_(q, cos, sin, conj=True)
+            k = apply_rotary_emb_(k, cos, sin, conj=True)
             x = F.scaled_dot_product_attention(q, k, v)
             x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         x = self.dropout(x)
@@ -296,8 +310,8 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
         cos, sin = self.pos_emb(pos)
-        q = apply_rotary_emb_(q, cos, sin)
-        k = apply_rotary_emb_(k, cos, sin)
+        q = apply_rotary_emb_(q, cos, sin, conj=True)
+        k = apply_rotary_emb_(k, cos, sin, conj=True)
         if natten is None:
             raise ModuleNotFoundError("natten is required for neighborhood attention")
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
