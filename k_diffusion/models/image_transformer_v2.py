@@ -452,7 +452,7 @@ class TokenSplit(nn.Module):
     def forward(self, x, skip):
         x = self.proj(x)
         x = rearrange(x, "... h w (nh nw e) -> ... (h nh) (w nw) e", nh=self.h, nw=self.w)
-        return torch.lerp(x, skip, self.fac.to(x.dtype))
+        return torch.lerp(skip, x, self.fac.to(x.dtype))
 
 
 # Configuration
