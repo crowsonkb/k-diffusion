@@ -117,6 +117,10 @@ def main():
     device = accelerator.device
     unwrap = accelerator.unwrap_model
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        print(f'World size: {accelerator.num_processes}', flush=True)
+        print(f'Batch size: {args.batch_size * accelerator.num_processes}', flush=True)
 
     if args.seed is not None:
         seeds = torch.randint(-2 ** 63, 2 ** 63 - 1, [accelerator.num_processes], generator=torch.Generator().manual_seed(args.seed))
