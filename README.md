@@ -28,7 +28,7 @@ In the `"model"` key of the config file:
 
 1. Model depth for each level of the hierarchy is specified by the `"depths"` config key, like `"depths": [2, 2, 4]`. This constructs a model with two transformer layers at the first level (4x4 patches), followed by two at the second level (8x8 patches), followed by four at the highest level (16x16 patches), followed by two more at the second level, followed by two more at the first level.
 
-1. Model width for each level of the hierarchy is specified by the `"widths"` config key, like `"widths": [192, 384, 768]`. The widths must be multiples of the attention head dimension, which is 64.
+1. Model width for each level of the hierarchy is specified by the `"widths"` config key, like `"widths": [192, 384, 768]`. The widths must be multiples of the attention head dimension.
 
 1. The self-attention mechanism for each level of the hierarchy is specified by the `"self_attns"` config key, like:
 
@@ -41,6 +41,20 @@ In the `"model"` key of the config file:
     ```
 
     If not specified, all levels of the hierarchy except for the highest use neighborhood attention with 64 dim heads and a 7x7 kernel. The highest level uses global attention with 64 dim heads. So the token count at every level but the highest can be very large.
+
+1. As a fallback if you or your users cannot use NATTEN, you can also train a model with [shifted window attention](https://arxiv.org/abs/2103.14030) at the low levels of the hierarchy. Shifted window attention does not perform as well as neighborhood attention and it is slower to train and inference, but it does not require custom CUDA kernels. Specify it like:
+
+    ```json
+    "self_attns": [
+        {"type": "shifted-window", "d_head": 64, "window_size": 8},
+        {"type": "shifted-window", "d_head": 64, "window_size": 8},
+        {"type": "global", "d_head": 64},
+    ]
+    ```
+
+    The window size at each level must evenly divide the image size at that level. Models trained with one attention type must be fine-tuned to be used with a different type.
+
+1. FP16 training with this model type is unstable. It is recommended to use BF16 (`--mixed-precision bf16`) or FP32.
 
 ## Installation
 
@@ -76,7 +90,7 @@ $ accelerate launch train.py --config CONFIG_FILE --name RUN_NAME
 
 ## Enhancements/additional features
 
-- k-diffusion has support for training transformer-based diffusion models (like [DiT](https://arxiv.org/abs/2212.09748) but improved).
+- k-diffusion supports a highly efficient hierarchical transformer model type.
 
 - k-diffusion supports a soft version of [Min-SNR loss weighting](https://arxiv.org/abs/2303.09556) for improved training at high resolutions with less hyperparameters than the loss weighting used in Karras et al. (2022).
 

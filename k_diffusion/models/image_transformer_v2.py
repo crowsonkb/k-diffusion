@@ -1,7 +1,7 @@
 """k-diffusion transformer diffusion models, version 2."""
 
 from dataclasses import dataclass
-from functools import partial, reduce
+from functools import reduce
 import math
 from typing import Union
 
@@ -231,6 +231,93 @@ class AxialRoPE(nn.Module):
         return freqs.cos(), freqs.sin()
 
 
+# Shifted window attention
+
+def window(window_size, x):
+    *b, h, w, c = x.shape
+    x = torch.reshape(
+        x,
+        (*b, h // window_size, window_size, w // window_size, window_size, c),
+    )
+    x = torch.permute(
+        x,
+        (*range(len(b)), -5, -3, -4, -2, -1),
+    )
+    return x
+
+
+def unwindow(x):
+    *b, h, w, wh, ww, c = x.shape
+    x = torch.permute(x, (*range(len(b)), -5, -3, -4, -2, -1))
+    x = torch.reshape(x, (*b, h * wh, w * ww, c))
+    return x
+
+
+def shifted_window(window_size, window_shift, x):
+    x = torch.roll(x, shifts=(window_shift, window_shift), dims=(-2, -3))
+    windows = window(window_size, x)
+    return windows
+
+
+def shifted_unwindow(window_shift, x):
+    x = unwindow(x)
+    x = torch.roll(x, shifts=(-window_shift, -window_shift), dims=(-2, -3))
+    return x
+
+
+def make_shifted_window_masks(n_h_w, n_w_w, w_h, w_w, shift, device=None):
+    ph_coords = torch.arange(n_h_w, device=device)
+    pw_coords = torch.arange(n_w_w, device=device)
+    h_coords = torch.arange(w_h, device=device)
+    w_coords = torch.arange(w_w, device=device)
+    patch_h, patch_w, q_h, q_w, k_h, k_w = torch.meshgrid(
+        ph_coords,
+        pw_coords,
+        h_coords,
+        w_coords,
+        h_coords,
+        w_coords,
+        indexing="ij",
+    )
+    is_top_patch = patch_h == 0
+    is_left_patch = patch_w == 0
+    q_above_shift = q_h < shift
+    k_above_shift = k_h < shift
+    q_left_of_shift = q_w < shift
+    k_left_of_shift = k_w < shift
+    m_corner = (
+        is_left_patch
+        & is_top_patch
+        & (q_left_of_shift == k_left_of_shift)
+        & (q_above_shift == k_above_shift)
+    )
+    m_left = is_left_patch & ~is_top_patch & (q_left_of_shift == k_left_of_shift)
+    m_top = ~is_left_patch & is_top_patch & (q_above_shift == k_above_shift)
+    m_rest = ~is_left_patch & ~is_top_patch
+    m = m_corner | m_left | m_top | m_rest
+    return m
+
+
+def apply_window_attention(window_size, window_shift, q, k, v):
+    # prep windows and masks
+    q_windows = shifted_window(window_size, window_shift, q)
+    k_windows = shifted_window(window_size, window_shift, k)
+    v_windows = shifted_window(window_size, window_shift, v)
+    b, heads, h, w, wh, ww, d_head = q_windows.shape
+    mask = make_shifted_window_masks(h, w, wh, ww, window_shift, device=q.device)
+    q_seqs = torch.reshape(q_windows, (b, heads, h, w, wh * ww, d_head))
+    k_seqs = torch.reshape(k_windows, (b, heads, h, w, wh * ww, d_head))
+    v_seqs = torch.reshape(v_windows, (b, heads, h, w, wh * ww, d_head))
+    mask = torch.reshape(mask, (h, w, wh * ww, wh * ww))
+
+    # do the attention here
+    qkv = F.scaled_dot_product_attention(q_seqs, k_seqs, v_seqs, mask, scale=1.0)
+
+    # unwindow
+    qkv = torch.reshape(qkv, (b, heads, h, w, wh, ww, d_head))
+    return shifted_unwindow(window_shift, qkv)
+
+
 # Transformer layers
 
 
@@ -323,6 +410,39 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         return x + skip
 
 
+class ShiftedWindowSelfAttentionBlock(nn.Module):
+    def __init__(self, d_model, d_head, cond_features, window_size, window_shift, dropout=0.0):
+        super().__init__()
+        self.d_head = d_head
+        self.n_heads = d_model // d_head
+        self.window_size = window_size
+        self.window_shift = window_shift
+        self.norm = AdaRMSNorm(d_model, cond_features)
+        self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
+        self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
+        self.pos_emb = AxialRoPE(d_head // 2)
+        self.dropout = nn.Dropout(dropout)
+        self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
+
+    def extra_repr(self):
+        return f"d_head={self.d_head}, window_size={self.window_size}, window_shift={self.window_shift}"
+
+    def forward(self, x, pos, cond):
+        skip = x
+        x = self.norm(x, cond)
+        qkv = self.qkv_proj(x)
+        q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
+        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
+        cos, sin = self.pos_emb(pos)
+        q = apply_rotary_emb_(q, cos, sin, conj=True)
+        k = apply_rotary_emb_(k, cos, sin, conj=True)
+        x = apply_window_attention(self.window_size, self.window_shift, q, k, v)
+        x = rearrange(x, "n nh h w e -> n h w (nh e)")
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x + skip
+
+
 class FeedForwardBlock(nn.Module):
     def __init__(self, d_model, d_ff, cond_features, dropout=0.0):
         super().__init__()
@@ -356,6 +476,19 @@ class NeighborhoodTransformerLayer(nn.Module):
     def __init__(self, d_model, d_ff, d_head, cond_features, kernel_size, dropout=0.0):
         super().__init__()
         self.self_attn = NeighborhoodSelfAttentionBlock(d_model, d_head, cond_features, kernel_size, dropout=dropout)
+        self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
+
+    def forward(self, x, pos, cond):
+        x = checkpoint(self.self_attn, x, pos, cond)
+        x = checkpoint(self.ff, x, cond)
+        return x
+
+
+class ShiftedWindowTransformerLayer(nn.Module):
+    def __init__(self, d_model, d_ff, d_head, cond_features, window_size, index, dropout=0.0):
+        super().__init__()
+        window_shift = window_size // 2 if index % 2 == 1 else 0
+        self.self_attn = ShiftedWindowSelfAttentionBlock(d_model, d_head, cond_features, window_size, window_shift, dropout=dropout)
         self.ff = FeedForwardBlock(d_model, d_ff, cond_features, dropout=dropout)
 
     def forward(self, x, pos, cond):
@@ -469,6 +602,12 @@ class NeighborhoodAttentionSpec:
 
 
 @dataclass
+class ShiftedWindowAttentionSpec:
+    d_head: int
+    window_size: int
+
+
+@dataclass
 class NoAttentionSpec:
     pass
 
@@ -478,7 +617,7 @@ class LevelSpec:
     depth: int
     width: int
     d_ff: int
-    self_attn: Union[GlobalAttentionSpec, NeighborhoodAttentionSpec, NoAttentionSpec]
+    self_attn: Union[GlobalAttentionSpec, NeighborhoodAttentionSpec, ShiftedWindowAttentionSpec, NoAttentionSpec]
 
 
 @dataclass
@@ -508,19 +647,21 @@ class ImageTransformerDenoiserModelV2(nn.Module):
         self.down_levels, self.up_levels = nn.ModuleList(), nn.ModuleList()
         for i, spec in enumerate(levels):
             if isinstance(spec.self_attn, GlobalAttentionSpec):
-                layer_factory = partial(TransformerLayer, spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, dropout=dropout)
+                layer_factory = lambda _: TransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, dropout=dropout)
             elif isinstance(spec.self_attn, NeighborhoodAttentionSpec):
-                layer_factory = partial(NeighborhoodTransformerLayer, spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.kernel_size, dropout=dropout)
+                layer_factory = lambda _: NeighborhoodTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.kernel_size, dropout=dropout)
+            elif isinstance(spec.self_attn, ShiftedWindowAttentionSpec):
+                layer_factory = lambda i: ShiftedWindowTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.window_size, i, dropout=dropout)
             elif isinstance(spec.self_attn, NoAttentionSpec):
-                layer_factory = partial(NoAttentionTransformerLayer, spec.width, spec.d_ff, mapping.width, dropout=dropout)
+                layer_factory = lambda _: NoAttentionTransformerLayer(spec.width, spec.d_ff, mapping.width, dropout=dropout)
             else:
                 raise ValueError(f"unsupported self attention spec {spec.self_attn}")
 
             if i < len(levels) - 1:
-                self.down_levels.append(Level([layer_factory() for _ in range(spec.depth)]))
-                self.up_levels.append(Level([layer_factory() for _ in range(spec.depth)]))
+                self.down_levels.append(Level([layer_factory(i) for i in range(spec.depth)]))
+                self.up_levels.append(Level([layer_factory(i + spec.depth) for i in range(spec.depth)]))
             else:
-                self.mid_level = Level([layer_factory() for _ in range(spec.depth)])
+                self.mid_level = Level([layer_factory(i) for i in range(spec.depth)])
 
         self.merges = nn.ModuleList([TokenMerge(spec_1.width, spec_2.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])
         self.splits = nn.ModuleList([TokenSplit(spec_2.width, spec_1.width) for spec_1, spec_2 in zip(levels[:-1], levels[1:])])

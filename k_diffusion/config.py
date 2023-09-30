@@ -171,12 +171,15 @@ def make_model(config):
     elif config['type'] == 'image_transformer_v2':
         assert len(config['widths']) == len(config['depths'])
         assert len(config['widths']) == len(config['d_ffs'])
+        assert len(config['widths']) == len(config['self_attns'])
         levels = []
-        for i, (depth, width, d_ff, self_attn) in enumerate(zip(config['depths'], config['widths'], config['d_ffs'], config['self_attns'])):
-            if self_attn['type'] == 'neighborhood':
-                self_attn = models.image_transformer_v2.NeighborhoodAttentionSpec(self_attn.get('d_head', 64), self_attn.get('kernel_size', 7))
-            elif self_attn['type'] == 'global':
+        for depth, width, d_ff, self_attn in zip(config['depths'], config['widths'], config['d_ffs'], config['self_attns']):
+            if self_attn['type'] == 'global':
                 self_attn = models.image_transformer_v2.GlobalAttentionSpec(self_attn.get('d_head', 64))
+            elif self_attn['type'] == 'neighborhood':
+                self_attn = models.image_transformer_v2.NeighborhoodAttentionSpec(self_attn.get('d_head', 64), self_attn.get('kernel_size', 7))
+            elif self_attn['type'] == 'shifted-window':
+                self_attn = models.image_transformer_v2.ShiftedWindowAttentionSpec(self_attn.get('d_head', 64), self_attn['window_size'])
             elif self_attn['type'] == 'none':
                 self_attn = models.image_transformer_v2.NoAttentionSpec()
             else:
