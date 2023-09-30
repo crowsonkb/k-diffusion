@@ -12,13 +12,27 @@ This branch of `k-diffusion` is for testing an experimental model type, `image_t
 
 To use the new model type you will need to install custom CUDA kernels:
 
-* [NATTEN](https://github.com/SHI-Labs/NATTEN/tree/main) for the sparse (neighborhood) attention used at low levels of the hierarchy.
+* [NATTEN](https://github.com/SHI-Labs/NATTEN/tree/main) for the sparse (neighborhood) attention used at low levels of the hierarchy. There is a [shifted window attention](https://arxiv.org/abs/2103.14030) version of the model type which does not require a custom CUDA kernel, but it does not perform as well and is slower to train and inference.
 
 * [FlashAttention-2](https://github.com/Dao-AILab/flash-attention) for global attention. It will fall back to plain PyTorch if it is not installed.
 
 Also, you should make sure your PyTorch installation is capable of using `torch.compile()` (for instance, if you are using Python 3.11, you should use a PyTorch nightly build instead of 2.0). It will fall back to eager mode if `torch.compile()` is not available, but it will be slower and use more memory in training.
 
 ### Usage
+
+#### Demo
+
+To train a 256x256 RGB model on [Oxford Flowers](https://www.robots.ox.ac.uk/~vgg/data/flowers) without installing custom CUDA kernels, run:
+
+```sh
+python train.py --config configs/config_oxford_flowers_shifted_window.json --name flowers_demo_001 --evaluate-n 0 --batch-size 32 --sample-n 36 --mixed-precision bf16
+```
+
+If you run out of memory, try adding `--checkpointing` or reducing the batch size. If you are using an older GPU (pre-Ampere), omit `--mixed-precision bf16` to train in FP32. It is not recommended to train in FP16.
+
+If you have NATTEN installed and working (preferred), you can train with neighborhood attention instead of shifted window attention by specifying `--config configs/config_oxford_flowers.json`.
+
+#### Config file
 
 In the `"model"` key of the config file:
 
@@ -53,8 +67,6 @@ In the `"model"` key of the config file:
     ```
 
     The window size at each level must evenly divide the image size at that level. Models trained with one attention type must be fine-tuned to be used with a different type.
-
-1. FP16 training with this model type is unstable. It is recommended to use BF16 (`--mixed-precision bf16`) or FP32.
 
 ## Installation
 
