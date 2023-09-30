@@ -311,7 +311,7 @@ def apply_window_attention(window_size, window_shift, q, k, v):
     mask = torch.reshape(mask, (h, w, wh * ww, wh * ww))
 
     # do the attention here
-    qkv = F.scaled_dot_product_attention(q_seqs, k_seqs, v_seqs, mask, scale=1.0)
+    qkv = F.scaled_dot_product_attention(q_seqs, k_seqs, v_seqs, mask)
 
     # unwindow
     qkv = torch.reshape(qkv, (b, heads, h, w, wh, ww, d_head))
@@ -432,7 +432,7 @@ class ShiftedWindowSelfAttentionBlock(nn.Module):
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
-        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
+        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None] * k.shape[-1]**0.5, 1e-6)
         cos, sin = self.pos_emb(pos)
         q = apply_rotary_emb_(q, cos, sin, conj=True)
         k = apply_rotary_emb_(k, cos, sin, conj=True)
