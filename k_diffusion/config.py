@@ -57,6 +57,10 @@ def load_config(path_or_dict):
     }
     defaults_image_transformer_v2 = {
         'model': {
+            'mapping_width': 256,
+            'mapping_depth': 2,
+            'mapping_d_ff': None,
+            'mapping_cond_dim': 0,
             'd_ffs': None,
             'self_attns': None,
             'augment_wrapper': False,
@@ -119,6 +123,8 @@ def load_config(path_or_dict):
             config['model']['d_ff'] = round_to_power_of_two(config['model']['width'] * 8 / 3, tol=0.05)
     elif config['model']['type'] == 'image_transformer_v2':
         config = merge(defaults_image_transformer_v2, config)
+        if not config['model']['mapping_d_ff']:
+            config['model']['mapping_d_ff'] = config['model']['mapping_width'] * 3
         if not config['model']['d_ffs']:
             d_ffs = []
             for width in config['model']['widths']:
@@ -185,7 +191,7 @@ def make_model(config):
             else:
                 raise ValueError(f'unsupported self attention type {self_attn["type"]}')
             levels.append(models.image_transformer_v2.LevelSpec(depth, width, d_ff, self_attn))
-        mapping = models.image_transformer_v2.MappingSpec(2, config['widths'][-1], config['d_ffs'][-1])
+        mapping = models.image_transformer_v2.MappingSpec(config['mapping_depth'], config['mapping_width'], config['mapping_d_ff'])
         model = models.ImageTransformerDenoiserModelV2(
             levels=levels,
             mapping=mapping,
@@ -193,6 +199,7 @@ def make_model(config):
             out_channels=config['input_channels'],
             patch_size=config['patch_size'],
             num_classes=num_classes + 1 if num_classes else 0,
+            mapping_cond_dim=config['mapping_cond_dim'],
             dropout=config['dropout_rate'],
         )
     else:
