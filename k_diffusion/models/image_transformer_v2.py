@@ -184,6 +184,7 @@ def apply_rotary_emb(x, cos, sin, conj=False):
     return torch.cat((y1, y2, x3), dim=-1).to(out_dtype)
 
 
+@compile
 def _apply_rotary_emb_inplace(x, cos, sin, conj):
     d = cos.shape[-1]
     assert d * 2 <= x.shape[-1]
@@ -216,17 +217,19 @@ def apply_rotary_emb_(x, cos, sin, conj=False):
 
 
 class AxialRoPE(nn.Module):
-    def __init__(self, dim):
+    def __init__(self, dim, n_heads):
         super().__init__()
-        freqs = torch.linspace(math.log(math.pi), math.log(10.0 * math.pi), dim // 4 + 1)[:-1].exp()
-        self.register_buffer("freqs", freqs)
+        log_min = math.log(math.pi)
+        log_max = math.log(10.0 * math.pi)
+        freqs = torch.linspace(log_min, log_max, n_heads * dim // 4 + 1)[:-1].exp()
+        self.register_buffer("freqs", freqs.view(dim // 4, n_heads).T.contiguous())
 
     def extra_repr(self):
-        return f"dim={self.freqs.shape[-1] * 4}"
+        return f"dim={self.freqs.shape[1] * 4}, n_heads={self.freqs.shape[0]}"
 
     def forward(self, pos):
-        freqs_h = pos[..., 0:1] * self.freqs.to(pos.dtype)
-        freqs_w = pos[..., 1:2] * self.freqs.to(pos.dtype)
+        freqs_h = pos[..., None, 0:1] * self.freqs.to(pos.dtype)
+        freqs_w = pos[..., None, 1:2] * self.freqs.to(pos.dtype)
         freqs = torch.cat((freqs_h, freqs_w), dim=-1)
         return freqs.cos(), freqs.sin()
 
@@ -341,7 +344,7 @@ class SelfAttentionBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model, cond_features)
         self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = AxialRoPE(d_head // 2)
+        self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
         self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
 
@@ -357,16 +360,16 @@ class SelfAttentionBlock(nn.Module):
         if use_flash_2(qkv):
             qkv = rearrange(qkv, "n h w (t nh e) -> n (h w) t nh e", t=3, e=self.d_head)
             qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
-            cos = torch.stack((cos, cos, torch.ones_like(cos)), dim=-2).unsqueeze(-2)
-            sin = torch.stack((sin, sin, torch.zeros_like(sin)), dim=-2).unsqueeze(-2)
-            qkv = apply_rotary_emb_(qkv, cos, sin, conj=True)
+            cos = torch.stack((cos, cos, torch.ones_like(cos)), dim=-3)
+            sin = torch.stack((sin, sin, torch.zeros_like(sin)), dim=-3)
+            qkv = apply_rotary_emb_(qkv, cos, sin)
             x = flash_attn.flash_attn_qkvpacked_func(qkv, softmax_scale=1.0)
             x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
             q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None] * k.shape[-1]**0.5, 1e-6)
-            q = apply_rotary_emb_(q, cos, sin, conj=True)
-            k = apply_rotary_emb_(k, cos, sin, conj=True)
+            q = apply_rotary_emb_(q, cos, sin)
+            k = apply_rotary_emb_(k, cos, sin)
             x = F.scaled_dot_product_attention(q, k, v)
             x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         x = self.dropout(x)
@@ -383,7 +386,7 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model, cond_features)
         self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = AxialRoPE(d_head // 2)
+        self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
         self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
 
@@ -397,8 +400,9 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
         cos, sin = self.pos_emb(pos)
-        q = apply_rotary_emb_(q, cos, sin, conj=True)
-        k = apply_rotary_emb_(k, cos, sin, conj=True)
+        cos, sin = cos.movedim(-2, 0), sin.movedim(-2, 0)
+        q = apply_rotary_emb_(q, cos, sin)
+        k = apply_rotary_emb_(k, cos, sin)
         if natten is None:
             raise ModuleNotFoundError("natten is required for neighborhood attention")
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
@@ -420,7 +424,7 @@ class ShiftedWindowSelfAttentionBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model, cond_features)
         self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
-        self.pos_emb = AxialRoPE(d_head // 2)
+        self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
         self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
 
@@ -434,8 +438,9 @@ class ShiftedWindowSelfAttentionBlock(nn.Module):
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None] * k.shape[-1]**0.5, 1e-6)
         cos, sin = self.pos_emb(pos)
-        q = apply_rotary_emb_(q, cos, sin, conj=True)
-        k = apply_rotary_emb_(k, cos, sin, conj=True)
+        cos, sin = cos.movedim(-2, 0), sin.movedim(-2, 0)
+        q = apply_rotary_emb_(q, cos, sin)
+        k = apply_rotary_emb_(k, cos, sin)
         x = apply_window_attention(self.window_size, self.window_shift, q, k, v)
         x = rearrange(x, "n nh h w e -> n h w (nh e)")
         x = self.dropout(x)
