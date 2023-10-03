@@ -1,7 +1,7 @@
 """k-diffusion transformer diffusion models, version 2."""
 
 from dataclasses import dataclass
-from functools import reduce
+from functools import lru_cache, reduce
 import math
 from typing import Union
 
@@ -268,6 +268,7 @@ def shifted_unwindow(window_shift, x):
     return x
 
 
+@lru_cache
 def make_shifted_window_masks(n_h_w, n_w_w, w_h, w_w, shift, device=None):
     ph_coords = torch.arange(n_h_w, device=device)
     pw_coords = torch.arange(n_w_w, device=device)
