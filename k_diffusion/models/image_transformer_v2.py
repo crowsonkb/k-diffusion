@@ -368,7 +368,7 @@ class SelfAttentionBlock(nn.Module):
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
             q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None] * k.shape[-1]**0.5, 1e-6)
-            cos, sin = cos.movedim(-2, 0), sin.movedim(-2, 0)
+            cos, sin = cos.movedim(-2, -4), sin.movedim(-2, -4)
             q = apply_rotary_emb_(q, cos, sin)
             k = apply_rotary_emb_(k, cos, sin)
             x = F.scaled_dot_product_attention(q, k, v)
@@ -401,7 +401,7 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
         cos, sin = self.pos_emb(pos)
-        cos, sin = cos.movedim(-2, 0), sin.movedim(-2, 0)
+        cos, sin = cos.movedim(-2, -4), sin.movedim(-2, -4)
         q = apply_rotary_emb_(q, cos, sin)
         k = apply_rotary_emb_(k, cos, sin)
         if natten is None:
@@ -439,7 +439,7 @@ class ShiftedWindowSelfAttentionBlock(nn.Module):
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None] * k.shape[-1]**0.5, 1e-6)
         cos, sin = self.pos_emb(pos)
-        cos, sin = cos.movedim(-2, 0), sin.movedim(-2, 0)
+        cos, sin = cos.movedim(-2, -4), sin.movedim(-2, -4)
         q = apply_rotary_emb_(q, cos, sin)
         k = apply_rotary_emb_(k, cos, sin)
         x = apply_window_attention(self.window_size, self.window_shift, q, k, v)
