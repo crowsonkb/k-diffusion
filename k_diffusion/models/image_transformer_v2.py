@@ -308,7 +308,7 @@ def make_shifted_window_masks(n_h_w, n_w_w, w_h, w_w, shift, device=None):
     return m
 
 
-def apply_window_attention(window_size, window_shift, q, k, v):
+def apply_window_attention(window_size, window_shift, q, k, v, scale=None):
     # prep windows and masks
     q_windows = shifted_window(window_size, window_shift, q)
     k_windows = shifted_window(window_size, window_shift, k)
@@ -321,7 +321,7 @@ def apply_window_attention(window_size, window_shift, q, k, v):
     mask = torch.reshape(mask, (h, w, wh * ww, wh * ww))
 
     # do the attention here
-    qkv = F.scaled_dot_product_attention(q_seqs, k_seqs, v_seqs, mask)
+    qkv = F.scaled_dot_product_attention(q_seqs, k_seqs, v_seqs, mask, scale=scale)
 
     # unwindow
     qkv = torch.reshape(qkv, (b, heads, h, w, wh, ww, d_head))
@@ -373,11 +373,11 @@ class SelfAttentionBlock(nn.Module):
             x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
-            q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None] * k.shape[-1]**0.5, 1e-6)
-            theta = theta.movedim(-2, -4)
+            q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None], 1e-6)
+            theta = theta.movedim(-2, -3)
             q = apply_rotary_emb_(q, theta)
             k = apply_rotary_emb_(k, theta)
-            x = F.scaled_dot_product_attention(q, k, v)
+            x = F.scaled_dot_product_attention(q, k, v, scale=1.0)
             x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         x = self.dropout(x)
         x = self.out_proj(x)
@@ -442,11 +442,11 @@ class ShiftedWindowSelfAttentionBlock(nn.Module):
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
-        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None] * k.shape[-1]**0.5, 1e-6)
+        q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
         theta = self.pos_emb(pos).movedim(-2, -4)
         q = apply_rotary_emb_(q, theta)
         k = apply_rotary_emb_(k, theta)
-        x = apply_window_attention(self.window_size, self.window_shift, q, k, v)
+        x = apply_window_attention(self.window_size, self.window_shift, q, k, v, scale=1.0)
         x = rearrange(x, "n nh h w e -> n h w (nh e)")
         x = self.dropout(x)
         x = self.out_proj(x)
