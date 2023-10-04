@@ -171,13 +171,14 @@ class AdaRMSNorm(nn.Module):
 # Rotary position embeddings
 
 @compile
-def apply_rotary_emb(x, cos, sin, conj=False):
+def apply_rotary_emb(x, angle, conj=False):
     out_dtype = x.dtype
-    dtype = reduce(torch.promote_types, (x.dtype, cos.dtype, sin.dtype, torch.float32))
-    d = cos.shape[-1]
+    dtype = reduce(torch.promote_types, (x.dtype, angle.dtype, torch.float32))
+    d = angle.shape[-1]
     assert d * 2 <= x.shape[-1]
     x1, x2, x3 = x[..., :d], x[..., d : d * 2], x[..., d * 2 :]
-    x1, x2, cos, sin = x1.to(dtype), x2.to(dtype), cos.to(dtype), sin.to(dtype)
+    x1, x2, angle = x1.to(dtype), x2.to(dtype), angle.to(dtype)
+    cos, sin = torch.cos(angle), torch.sin(angle)
     sin = -sin if conj else sin
     y1 = (x1 * cos - x2 * sin).to(out_dtype)
     y2 = (x2 * cos + x1 * sin).to(out_dtype)
@@ -185,11 +186,12 @@ def apply_rotary_emb(x, cos, sin, conj=False):
 
 
 @compile
-def _apply_rotary_emb_inplace(x, cos, sin, conj):
-    d = cos.shape[-1]
+def _apply_rotary_emb_inplace(x, angle, conj):
+    d = angle.shape[-1]
     assert d * 2 <= x.shape[-1]
     x1, x2 = x[..., :d], x[..., d : d * 2]
     tmp = x1.clone()
+    cos, sin = torch.cos(angle), torch.sin(angle)
     x1.mul_(cos).addcmul_(x2, sin, value=1 if conj else -1)
     x2.mul_(cos).addcmul_(tmp, sin, value=-1 if conj else 1)
     return x
@@ -197,23 +199,23 @@ def _apply_rotary_emb_inplace(x, cos, sin, conj):
 
 class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
     @staticmethod
-    def forward(x, cos, sin, conj):
-        return _apply_rotary_emb_inplace(x, cos, sin, conj=conj)
+    def forward(x, angle, conj):
+        return _apply_rotary_emb_inplace(x, angle, conj=conj)
 
     @staticmethod
     def setup_context(ctx, inputs, output):
-        _, cos, sin, conj = inputs
-        ctx.save_for_backward(cos, sin)
+        _, angle, conj = inputs
+        ctx.save_for_backward(angle)
         ctx.conj = conj
 
     @staticmethod
     def backward(ctx, grad_output):
-        cos, sin = ctx.saved_tensors
-        return _apply_rotary_emb_inplace(grad_output, cos, sin, conj=not ctx.conj), None, None, None
+        angle, = ctx.saved_tensors
+        return _apply_rotary_emb_inplace(grad_output, angle, conj=not ctx.conj), None, None
 
 
-def apply_rotary_emb_(x, cos, sin, conj=False):
-    return ApplyRotaryEmbeddingInplace.apply(x, cos, sin, conj)
+def apply_rotary_emb_(x, angle, conj=False):
+    return ApplyRotaryEmbeddingInplace.apply(x, angle, conj)
 
 
 class AxialRoPE(nn.Module):
@@ -228,10 +230,9 @@ class AxialRoPE(nn.Module):
         return f"dim={self.freqs.shape[1] * 4}, n_heads={self.freqs.shape[0]}"
 
     def forward(self, pos):
-        freqs_h = pos[..., None, 0:1] * self.freqs.to(pos.dtype)
-        freqs_w = pos[..., None, 1:2] * self.freqs.to(pos.dtype)
-        freqs = torch.cat((freqs_h, freqs_w), dim=-1)
-        return freqs.cos(), freqs.sin()
+        angle_h = pos[..., None, 0:1] * self.freqs.to(pos.dtype)
+        angle_w = pos[..., None, 1:2] * self.freqs.to(pos.dtype)
+        return torch.cat((angle_h, angle_w), dim=-1)
 
 
 # Shifted window attention
@@ -357,21 +358,20 @@ class SelfAttentionBlock(nn.Module):
         x = self.norm(x, cond)
         qkv = self.qkv_proj(x)
         pos = rearrange(pos, "... h w e -> ... (h w) e").to(qkv.dtype)
-        cos, sin = self.pos_emb(pos)
+        angle = self.pos_emb(pos)
         if use_flash_2(qkv):
             qkv = rearrange(qkv, "n h w (t nh e) -> n (h w) t nh e", t=3, e=self.d_head)
             qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
-            cos = torch.stack((cos, cos, torch.ones_like(cos)), dim=-3)
-            sin = torch.stack((sin, sin, torch.zeros_like(sin)), dim=-3)
-            qkv = apply_rotary_emb_(qkv, cos, sin)
+            angle = torch.stack((angle, angle, torch.zeros_like(angle)), dim=-3)
+            qkv = apply_rotary_emb_(qkv, angle)
             x = flash_attn.flash_attn_qkvpacked_func(qkv, softmax_scale=1.0)
             x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         else:
             q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh (h w) e", t=3, e=self.d_head)
             q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None] * k.shape[-1]**0.5, 1e-6)
-            cos, sin = cos.movedim(-2, -4), sin.movedim(-2, -4)
-            q = apply_rotary_emb_(q, cos, sin)
-            k = apply_rotary_emb_(k, cos, sin)
+            angle = angle.movedim(-2, -4)
+            q = apply_rotary_emb_(q, angle)
+            k = apply_rotary_emb_(k, angle)
             x = F.scaled_dot_product_attention(q, k, v)
             x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         x = self.dropout(x)
@@ -401,10 +401,9 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         qkv = self.qkv_proj(x)
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None], 1e-6)
-        cos, sin = self.pos_emb(pos)
-        cos, sin = cos.movedim(-2, -4), sin.movedim(-2, -4)
-        q = apply_rotary_emb_(q, cos, sin)
-        k = apply_rotary_emb_(k, cos, sin)
+        angle = self.pos_emb(pos).movedim(-2, -4)
+        q = apply_rotary_emb_(q, angle)
+        k = apply_rotary_emb_(k, angle)
         if natten is None:
             raise ModuleNotFoundError("natten is required for neighborhood attention")
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
@@ -439,10 +438,9 @@ class ShiftedWindowSelfAttentionBlock(nn.Module):
         qkv = self.qkv_proj(x)
         q, k, v = rearrange(qkv, "n h w (t nh e) -> t n nh h w e", t=3, e=self.d_head)
         q, k = scale_for_cosine_sim(q, k, self.scale[:, None, None, None] * k.shape[-1]**0.5, 1e-6)
-        cos, sin = self.pos_emb(pos)
-        cos, sin = cos.movedim(-2, -4), sin.movedim(-2, -4)
-        q = apply_rotary_emb_(q, cos, sin)
-        k = apply_rotary_emb_(k, cos, sin)
+        angle = self.pos_emb(pos).movedim(-2, -4)
+        q = apply_rotary_emb_(q, angle)
+        k = apply_rotary_emb_(k, angle)
         x = apply_window_attention(self.window_size, self.window_shift, q, k, v)
         x = rearrange(x, "n nh h w e -> n h w (nh e)")
         x = self.dropout(x)
