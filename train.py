@@ -155,6 +155,13 @@ def main():
                           betas=tuple(opt_config['betas']),
                           eps=opt_config['eps'],
                           weight_decay=opt_config['weight_decay'])
+    elif opt_config['type'] == 'adam8bit':
+        import bitsandbytes as bnb
+        opt = bnb.optim.Adam8bit(groups,
+                                 lr=lr,
+                                 betas=tuple(opt_config['betas']),
+                                 eps=opt_config['eps'],
+                                 weight_decay=opt_config['weight_decay'])
     elif opt_config['type'] == 'sgd':
         opt = optim.SGD(groups,
                         lr=lr,
