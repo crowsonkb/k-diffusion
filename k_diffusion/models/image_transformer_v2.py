@@ -199,13 +199,13 @@ def _apply_rotary_emb_inplace(x, theta, conj):
     y2 = x2_ * cos + x1_ * sin
     x1.copy_(y1)
     x2.copy_(y2)
-    return x
 
 
 class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
     @staticmethod
     def forward(x, theta, conj):
-        return _apply_rotary_emb_inplace(x, theta, conj=conj)
+        _apply_rotary_emb_inplace(x, theta, conj=conj)
+        return x
 
     @staticmethod
     def setup_context(ctx, inputs, output):
@@ -216,11 +216,12 @@ class ApplyRotaryEmbeddingInplace(torch.autograd.Function):
     @staticmethod
     def backward(ctx, grad_output):
         theta, = ctx.saved_tensors
-        return _apply_rotary_emb_inplace(grad_output, theta, conj=not ctx.conj), None, None
+        _apply_rotary_emb_inplace(grad_output, theta, conj=not ctx.conj)
+        return grad_output, None, None
 
 
-def apply_rotary_emb_(x, theta, conj=False):
-    return ApplyRotaryEmbeddingInplace.apply(x, theta, conj)
+def apply_rotary_emb_(x, theta):
+    return ApplyRotaryEmbeddingInplace.apply(x, theta, False)
 
 
 class AxialRoPE(nn.Module):
