@@ -25,4 +25,4 @@ def checkpointing(enable=True):
 
 
 def get_checkpointing():
-    return state.checkpointing
+    return getattr(state, "checkpointing", False)
