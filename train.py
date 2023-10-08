@@ -9,6 +9,7 @@ import importlib.util
 import math
 import json
 from pathlib import Path
+import time
 
 import accelerate
 import safetensors.torch as safetorch
@@ -126,7 +127,7 @@ def main():
         seeds = torch.randint(-2 ** 63, 2 ** 63 - 1, [accelerator.num_processes], generator=torch.Generator().manual_seed(args.seed))
         torch.manual_seed(seeds[accelerator.process_index])
     demo_gen = torch.Generator().manual_seed(torch.randint(-2 ** 63, 2 ** 63 - 1, ()).item())
-    timer = K.utils.Timer()
+    elapsed = 0.0
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
@@ -233,7 +234,7 @@ def main():
     class_key = dataset_config.get('class_key', 1)
 
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
-                               num_workers=args.num_workers, persistent_workers=True)
+                               num_workers=args.num_workers, persistent_workers=True, pin_memory=True)
 
     inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
     if use_wandb:
@@ -274,7 +275,7 @@ def main():
         if args.gns and ckpt.get('gns_stats', None) is not None:
             gns_stats.load_state_dict(ckpt['gns_stats'])
         demo_gen.set_state(ckpt['demo_gen'])
-        timer = K.utils.Timer(ckpt.get('elapsed', 0.0))
+        elapsed = ckpt.get('elapsed', 0.0)
 
         del ckpt
     else:
@@ -375,7 +376,7 @@ def main():
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
             if accelerator.is_main_process:
-                metrics_log.write(step, timer.get(), ema_stats['loss'], fid.item(), kid.item())
+                metrics_log.write(step, elapsed, ema_stats['loss'], fid.item(), kid.item())
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
@@ -398,7 +399,7 @@ def main():
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
             'ema_stats': ema_stats,
             'demo_gen': demo_gen.get_state(),
-            'elapsed': timer.get(),
+            'elapsed': elapsed,
         }
         accelerator.save(obj, filename)
         if accelerator.is_main_process:
@@ -412,7 +413,14 @@ def main():
     try:
         while True:
             for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
-                timer.start()
+                if device.type == 'cuda':
+                    start_timer = torch.cuda.Event(enable_timing=True)
+                    end_timer = torch.cuda.Event(enable_timing=True)
+                    torch.cuda.synchronize()
+                    start_timer.record()
+                else:
+                    start_timer = time.time()
+
                 with accelerator.accumulate(model):
                     reals, _, aug_cond = batch[image_key]
                     class_cond, extra_args = None, {}
@@ -444,6 +452,13 @@ def main():
                         K.utils.ema_update(model, model_ema, ema_decay)
                         ema_sched.step()
 
+                if device.type == 'cuda':
+                    end_timer.record()
+                    torch.cuda.synchronize()
+                    elapsed += start_timer.elapsed_time(end_timer) / 1000
+                else:
+                    elapsed += time.time() - start_timer
+
                 if step % 25 == 0:
                     loss_disp = sum(losses_since_last_print) / len(losses_since_last_print)
                     losses_since_last_print.clear()
@@ -466,7 +481,6 @@ def main():
                     wandb.log(log_dict, step=step)
 
                 step += 1
-                timer.stop()
 
                 if step % args.demo_every == 0:
                     demo()

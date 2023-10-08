@@ -456,30 +456,3 @@ def ema_update_dict(values, updates, decay):
             values[k] *= decay
             values[k] += (1 - decay) * v
     return values
-
-
-class Timer:
-    def __init__(self, elapsed=0.0):
-        """A simple counter of elapsed time."""
-        self.elapsed = elapsed
-        self.last_time = None
-
-    def get(self, time_value=None):
-        """Updates and returns the elapsed time."""
-        time_value = time_value or time.time()
-        if self.last_time:
-            self.elapsed += time_value - self.last_time
-            self.last_time = time_value
-        return self.elapsed
-
-    def start(self, time_value=None):
-        """Starts counting elapsed time."""
-        time_value = time_value or time.time()
-        self.get(time_value)
-        self.last_time = time_value
-
-    def stop(self, time_value=None):
-        """Stops counting elapsed time."""
-        time_value = time_value or time.time()
-        self.get(time_value)
-        self.last_time = None
