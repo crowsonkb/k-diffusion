@@ -86,16 +86,7 @@ def filter_params(function, module):
 
 # Kernels
 
-def compile(function, *args, **kwargs):
-    if not flags.get_use_compile():
-        return function
-    try:
-        return torch.compile(function, *args, **kwargs)
-    except RuntimeError:
-        return function
-
-
-@compile
+@flags.compile_wrap
 def linear_geglu(x, weight, bias=None):
     x = x @ weight.mT
     if bias is not None:
@@ -104,7 +95,7 @@ def linear_geglu(x, weight, bias=None):
     return x * F.gelu(gate)
 
 
-@compile
+@flags.compile_wrap
 def rms_norm(x, scale, eps):
     dtype = reduce(torch.promote_types, (x.dtype, scale.dtype, torch.float32))
     mean_sq = torch.mean(x.to(dtype)**2, dim=-1, keepdim=True)
@@ -112,7 +103,7 @@ def rms_norm(x, scale, eps):
     return x * scale.to(x.dtype)
 
 
-@compile
+@flags.compile_wrap
 def scale_for_cosine_sim(q, k, scale, eps):
     dtype = reduce(torch.promote_types, (q.dtype, k.dtype, scale.dtype, torch.float32))
     sum_sq_q = torch.sum(q.to(dtype)**2, dim=-1, keepdim=True)
@@ -123,7 +114,7 @@ def scale_for_cosine_sim(q, k, scale, eps):
     return q * scale_q.to(q.dtype), k * scale_k.to(k.dtype)
 
 
-@compile
+@flags.compile_wrap
 def scale_for_cosine_sim_qkv(qkv, scale, eps):
     q, k, v = qkv.unbind(2)
     q, k = scale_for_cosine_sim(q, k, scale[:, None], eps)
@@ -170,7 +161,7 @@ class AdaRMSNorm(nn.Module):
 
 # Rotary position embeddings
 
-@compile
+@flags.compile_wrap
 def apply_rotary_emb(x, theta, conj=False):
     out_dtype = x.dtype
     dtype = reduce(torch.promote_types, (x.dtype, theta.dtype, torch.float32))
@@ -186,7 +177,7 @@ def apply_rotary_emb(x, theta, conj=False):
     return torch.cat((y1, y2, x3), dim=-1)
 
 
-@compile
+@flags.compile_wrap
 def _apply_rotary_emb_inplace(x, theta, conj):
     dtype = reduce(torch.promote_types, (x.dtype, theta.dtype, torch.float32))
     d = theta.shape[-1]
