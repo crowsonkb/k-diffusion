@@ -52,12 +52,14 @@ def main():
     p.add_argument('--end-step', type=int, default=None,
                    help='the step to end training at')
     p.add_argument('--evaluate-every', type=int, default=10000,
-                   help='save a demo grid every this many steps')
+                   help='evaluate every this many steps')
+    p.add_argument('--evaluate-n', type=int, default=2000,
+                   help='the number of samples to draw to evaluate')
+    p.add_argument('--evaluate-only', action='store_true',
+                   help='evaluate instead of training')
     p.add_argument('--evaluate-with', type=str, default='inception',
                    choices=['inception', 'clip', 'dinov2'],
                    help='the feature extractor to use for evaluation')
-    p.add_argument('--evaluate-n', type=int, default=2000,
-                   help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only, disables stratified sampling)')
     p.add_argument('--grad-accum-steps', type=int, default=1,
@@ -297,6 +299,7 @@ def main():
         del ckpt
 
     evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
+    metrics_log = None
     if evaluate_enabled:
         if args.evaluate_with == 'inception':
             extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
@@ -310,7 +313,7 @@ def main():
         if accelerator.is_main_process:
             print('Computing features for reals...')
         reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
-        if accelerator.is_main_process:
+        if accelerator.is_main_process and not args.evaluate_only:
             metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'time', 'loss', 'fid', 'kid'])
         del train_iter
 
@@ -375,7 +378,7 @@ def main():
             fid = K.evaluation.fid(fakes_features, reals_features)
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-            if accelerator.is_main_process:
+            if accelerator.is_main_process and metrics_log is not None:
                 metrics_log.write(step, elapsed, ema_stats['loss'], fid.item(), kid.item())
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
@@ -407,6 +410,12 @@ def main():
             json.dump(state_obj, open(state_path, 'w'))
         if args.wandb_save_model and use_wandb:
             wandb.save(filename)
+
+    if args.evaluate_only:
+        if not evaluate_enabled:
+            raise ValueError('--evaluate-only requested but evaluation is disabled')
+        evaluate()
+        return
 
     losses_since_last_print = []
 
