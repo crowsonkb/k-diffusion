@@ -557,7 +557,7 @@ class TokenMerge(nn.Module):
         super().__init__()
         self.h = patch_size[0]
         self.w = patch_size[1]
-        self.proj = nn.Linear(in_features * self.h * self.w, out_features, bias=False)
+        self.proj = apply_wd(nn.Linear(in_features * self.h * self.w, out_features, bias=False))
 
     def forward(self, x):
         x = rearrange(x, "... (h nh) (w nw) e -> ... h w (nh nw e)", nh=self.h, nw=self.w)
@@ -569,7 +569,7 @@ class TokenSplitWithoutSkip(nn.Module):
         super().__init__()
         self.h = patch_size[0]
         self.w = patch_size[1]
-        self.proj = nn.Linear(in_features, out_features * self.h * self.w, bias=False)
+        self.proj = apply_wd(nn.Linear(in_features, out_features * self.h * self.w, bias=False))
 
     def forward(self, x):
         x = self.proj(x)
@@ -581,7 +581,7 @@ class TokenSplit(nn.Module):
         super().__init__()
         self.h = patch_size[0]
         self.w = patch_size[1]
-        self.proj = nn.Linear(in_features, out_features * self.h * self.w, bias=False)
+        self.proj = apply_wd(nn.Linear(in_features, out_features * self.h * self.w, bias=False))
         self.fac = nn.Parameter(torch.ones(1) * 0.5)
 
     def forward(self, x, skip):
