@@ -73,26 +73,18 @@ def scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0.0):
     return F.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=dropout_p)
 
 
-def _geglu(x):
+@flags.compile_wrap
+def geglu(x):
     a, b = x.chunk(2, dim=-1)
     return a * F.gelu(b)
 
 
-def _rms_norm(x, scale, eps):
+@flags.compile_wrap
+def rms_norm(x, scale, eps):
     dtype = torch.promote_types(x.dtype, torch.float32)
     mean_sq = torch.mean(x.to(dtype)**2, dim=-1, keepdim=True)
     scale = scale.to(dtype) * torch.rsqrt(mean_sq + eps)
     return x * scale.to(x.dtype)
-
-
-try:
-    if not flags.get_use_compile():
-        raise RuntimeError
-    geglu = torch.compile(_geglu)
-    rms_norm = torch.compile(_rms_norm)
-except RuntimeError:
-    geglu = _geglu
-    rms_norm = _rms_norm
 
 
 class GEGLU(nn.Module):

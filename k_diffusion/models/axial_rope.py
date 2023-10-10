@@ -17,7 +17,8 @@ def rotate_half(x):
     return x.view(*shape, d * r)
 
 
-def _apply_rotary_emb(freqs, t, start_index=0, scale=1.0):
+@flags.compile_wrap
+def apply_rotary_emb(freqs, t, start_index=0, scale=1.0):
     freqs = freqs.to(t)
     rot_dim = freqs.shape[-1]
     end_index = start_index + rot_dim
@@ -25,14 +26,6 @@ def _apply_rotary_emb(freqs, t, start_index=0, scale=1.0):
     t_left, t, t_right = t[..., :start_index], t[..., start_index:end_index], t[..., end_index:]
     t = (t * freqs.cos() * scale) + (rotate_half(t) * freqs.sin() * scale)
     return torch.cat((t_left, t, t_right), dim=-1)
-
-
-try:
-    if not flags.get_use_compile():
-        raise RuntimeError
-    apply_rotary_emb = torch.compile(_apply_rotary_emb)
-except RuntimeError:
-    apply_rotary_emb = _apply_rotary_emb
 
 
 def centers(start, stop, num, dtype=None, device=None):
