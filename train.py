@@ -283,6 +283,7 @@ def main():
             sample_density = K.config.make_sample_density(model_config)
             model = K.config.make_denoiser_wrapper(config)(inner_model)
         model_ema = K.config.make_denoiser_wrapper(config)(inner_model_ema)
+        class_cond_key = 'class_cond'
     else:
         from kdiff_trainer.load_diffusion_model import wrap_diffusion_model
         model_ema = wrap_diffusion_model(inner_model_ema, guided_diff, device=accelerator.device)
@@ -293,6 +294,7 @@ def main():
             model = wrap_diffusion_model(inner_model, guided_diff, device=accelerator.device)
         else:
             model_ema.requires_grad_(False).eval()
+        class_cond_key = 'y'
 
     state_path = Path(f'{args.name}_state.json')
 
@@ -395,7 +397,7 @@ def main():
         if num_classes:
             class_cond = torch.randint(0, num_classes, [accelerator.num_processes, n_per_proc], generator=demo_gen).to(device)
             dist.broadcast(class_cond, 0)
-            extra_args['class_cond'] = class_cond[accelerator.process_index]
+            extra_args[class_cond_key] = class_cond[accelerator.process_index]
             model_fn = make_cfg_model_fn(model_ema)
         sigmas = K.sampling.get_sigmas_karras(50, sigma_min, sigma_max, rho=7., device=device)
         x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=not accelerator.is_main_process)
@@ -418,7 +420,7 @@ def main():
             x = torch.randn([n, model_config['input_channels'], size[0], size[1]], device=device) * sigma_max
             model_fn, extra_args = model_ema, {}
             if num_classes:
-                extra_args['class_cond'] = torch.randint(0, num_classes, [n], device=device)
+                extra_args[class_cond_key] = torch.randint(0, num_classes, [n], device=device)
                 model_fn = make_cfg_model_fn(model_ema)
             x_0 = K.sampling.sample_dpmpp_2m_sde(model_fn, x, sigmas, extra_args=extra_args, eta=0.0, solver_type='heun', disable=True)
             return x_0
@@ -488,7 +490,7 @@ def main():
                         class_cond = batch[class_key]
                         drop = torch.rand(class_cond.shape, device=class_cond.device)
                         class_cond.masked_fill_(drop < cond_dropout_rate, num_classes)
-                        extra_args['class_cond'] = class_cond
+                        extra_args[class_cond_key] = class_cond
                     noise = torch.randn_like(reals)
                     with K.utils.enable_stratified_accelerate(accelerator, disable=args.gns):
                         sigma = sample_density([reals.shape[0]], device=device)
