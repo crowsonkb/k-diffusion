@@ -8,24 +8,6 @@ from guided_diffusion import script_util
 from guided_diffusion.unet import UNetModel
 from guided_diffusion.respace import SpacedDiffusion
 
-class OpenAIVDenoiser(K.external.DiscreteVDDPMDenoiser):
-    """A wrapper for OpenAI v objective diffusion models."""
-
-    def __init__(
-        self, model, diffusion, quantize=False, has_learned_sigmas=True, device="cpu"
-    ):
-        alphas_cumprod = torch.tensor(
-            diffusion.alphas_cumprod, device=device, dtype=torch.float32
-        )
-        super().__init__(model, alphas_cumprod, quantize=quantize)
-        self.has_learned_sigmas = has_learned_sigmas
-
-    def get_v(self, *args, **kwargs):
-        model_output = self.inner_model(*args, **kwargs)
-        if self.has_learned_sigmas:
-            return model_output.chunk(2, dim=1)[0]
-        return model_output
-
 class ModelAndDiffusion(NamedTuple):
     model: UNetModel
     diffusion: SpacedDiffusion
@@ -57,6 +39,6 @@ def wrap_diffusion_model(
     if model_type == "eps":
         return K.external.OpenAIDenoiser(model, diffusion, device=device)
     elif model_type == "v":
-        return OpenAIVDenoiser(model, diffusion, device=device)
+        return K.external.OpenAIVDenoiser(model, diffusion, device=device)
     else:
         raise ValueError(f"Unknown model type {model_type}")
