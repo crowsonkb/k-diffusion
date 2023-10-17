@@ -279,20 +279,19 @@ def main():
     if guided_diff is None:
         sigma_min = model_config['sigma_min']
         sigma_max = model_config['sigma_max']
-        sample_density = K.config.make_sample_density(model_config)
         if do_train:
+            sample_density = K.config.make_sample_density(model_config)
             model = K.config.make_denoiser_wrapper(config)(inner_model)
         model_ema = K.config.make_denoiser_wrapper(config)(inner_model_ema)
     else:
         from kdiff_trainer.load_diffusion_model import wrap_diffusion_model
-        if do_train:
-            model = wrap_diffusion_model(inner_model, guided_diff, device=accelerator.device)
         model_ema = wrap_diffusion_model(inner_model_ema, guided_diff, device=accelerator.device)
         sigma_min = model_ema.sigma_min.item()
         sigma_max = model_ema.sigma_max.item()
-        # TODO: not sure what this needs to be for guided diffusion
-        sample_density = None
-        if not do_train:
+        if do_train:
+            sample_density = partial(K.utils.rand_uniform, min_value=0, max_value=guided_diff.num_timesteps-1)
+            model = wrap_diffusion_model(inner_model, guided_diff, device=accelerator.device)
+        else:
             model_ema.requires_grad_(False).eval()
 
     state_path = Path(f'{args.name}_state.json')
