@@ -1,0 +1,40 @@
+{
+  "configurations": [
+    {
+      "name": "Python: Oxford Flowers (shifted window)",
+      "type": "python",
+      "request": "launch",
+      "program": "train.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "subProcess": false,
+      "args": [
+        "--config", "configs/config_oxford_flowers_shifted_window.json",
+        "--out-root", "out",
+        "--output-to-subdir",
+        "--name", "flowers_demo_001",
+        "--evaluate-n", "0",
+        "--batch-size", "32",
+        "--sample-n", "36",
+        "--mixed-precision", "bf16",
+        "--demo-img-compress",
+        "--font", "./kdiff_trainer/font/DejaVuSansMono.ttf",
+      ],
+    },
+    {
+      "name": "Python: Compute FID OpenAI",
+      "type": "python",
+      "request": "launch",
+      "program": "train.py",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": [
+        "--config", "configs/config_guided_diffusion_imagenet.json",
+        "--resume-inference", "/nvme1/ml-weights/256x256_diffusion.pt",
+        "--evaluate-only",
+        "--evaluate-n", "4",
+        "--start-method", "fork"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+guided-diffusion @ git+https://github.com/crowsonkb/guided-diffusion#egg=guided-diffusion

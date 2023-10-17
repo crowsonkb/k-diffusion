@@ -18,9 +18,12 @@ import torch._dynamo
 from torch import distributed as dist
 from torch import multiprocessing as mp
 from torch import optim
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import LRScheduler
 from torch.utils import data
 from torchvision import datasets, transforms, utils
 from tqdm.auto import tqdm
+from typing import Optional
 
 import k_diffusion as K
 
@@ -104,12 +107,17 @@ def main():
     except AttributeError:
         pass
 
+    do_train = not args.evaluate_only
+
     config = K.config.load_config(args.config)
     model_config = config['model']
     dataset_config = config['dataset']
-    opt_config = config['optimizer']
-    sched_config = config['lr_sched']
-    ema_sched_config = config['ema_sched']
+    if do_train:
+        opt_config = config['optimizer']
+        sched_config = config['lr_sched']
+        ema_sched_config = config['ema_sched']
+    else:
+        opt_config = sched_config = ema_sched_config = None
 
     # TODO: allow non-square input sizes
     assert len(model_config['input_size']) == 2 and model_config['input_size'][0] == model_config['input_size'][1]
@@ -131,15 +139,26 @@ def main():
     demo_gen = torch.Generator().manual_seed(torch.randint(-2 ** 63, 2 ** 63 - 1, ()).item())
     elapsed = 0.0
 
-    inner_model = K.config.make_model(config)
-    inner_model_ema = deepcopy(inner_model)
+    if model_config['type'] == 'guided_diffusion':
+        from kdiff_trainer.load_diffusion_model import construct_diffusion_model
+        # can't easily put this into K.config.make_model; would change return type and introduce dependency
+        model_, guided_diff = construct_diffusion_model(model_config['config'])
+    else:
+        model_ = K.config.make_model(config)
+        guided_diff = None
+
+    if do_train:
+        inner_model, inner_model_ema = model_, deepcopy(model_)
+    else:
+        inner_model, inner_model_ema = None, model_
+    del model_
 
     if args.compile:
-        inner_model.compile()
+        (inner_model or inner_model_ema).compile()
         # inner_model_ema.compile()
 
     if accelerator.is_main_process:
-        print(f'Parameters: {K.utils.n_params(inner_model):,}')
+        print(f'Parameters: {K.utils.n_params((inner_model or inner_model_ema)):,}')
 
     # If logging to wandb, initialize the run
     use_wandb = accelerator.is_main_process and args.wandb_project
@@ -147,52 +166,57 @@ def main():
         import wandb
         log_config = vars(args)
         log_config['config'] = config
-        log_config['parameters'] = K.utils.n_params(inner_model)
+        log_config['parameters'] = K.utils.n_params((inner_model or inner_model_ema))
         wandb.init(project=args.wandb_project, entity=args.wandb_entity, group=args.wandb_group, config=log_config, save_code=True)
 
-    lr = opt_config['lr'] if args.lr is None else args.lr
-    groups = inner_model.param_groups(lr)
-    if opt_config['type'] == 'adamw':
-        opt = optim.AdamW(groups,
-                          lr=lr,
-                          betas=tuple(opt_config['betas']),
-                          eps=opt_config['eps'],
-                          weight_decay=opt_config['weight_decay'])
-    elif opt_config['type'] == 'adam8bit':
-        import bitsandbytes as bnb
-        opt = bnb.optim.Adam8bit(groups,
-                                 lr=lr,
-                                 betas=tuple(opt_config['betas']),
-                                 eps=opt_config['eps'],
-                                 weight_decay=opt_config['weight_decay'])
-    elif opt_config['type'] == 'sgd':
-        opt = optim.SGD(groups,
-                        lr=lr,
-                        momentum=opt_config.get('momentum', 0.),
-                        nesterov=opt_config.get('nesterov', False),
-                        weight_decay=opt_config.get('weight_decay', 0.))
-    else:
-        raise ValueError('Invalid optimizer type')
+    if do_train:
+        lr = opt_config['lr'] if args.lr is None else args.lr
+        groups = inner_model.param_groups(lr)
+        if opt_config['type'] == 'adamw':
+            opt = optim.AdamW(groups,
+                            lr=lr,
+                            betas=tuple(opt_config['betas']),
+                            eps=opt_config['eps'],
+                            weight_decay=opt_config['weight_decay'])
+        elif opt_config['type'] == 'adam8bit':
+            import bitsandbytes as bnb
+            opt = bnb.optim.Adam8bit(groups,
+                                    lr=lr,
+                                    betas=tuple(opt_config['betas']),
+                                    eps=opt_config['eps'],
+                                    weight_decay=opt_config['weight_decay'])
+        elif opt_config['type'] == 'sgd':
+            opt = optim.SGD(groups,
+                            lr=lr,
+                            momentum=opt_config.get('momentum', 0.),
+                            nesterov=opt_config.get('nesterov', False),
+                            weight_decay=opt_config.get('weight_decay', 0.))
+        else:
+            raise ValueError('Invalid optimizer type')
 
-    if sched_config['type'] == 'inverse':
-        sched = K.utils.InverseLR(opt,
-                                  inv_gamma=sched_config['inv_gamma'],
-                                  power=sched_config['power'],
-                                  warmup=sched_config['warmup'])
-    elif sched_config['type'] == 'exponential':
-        sched = K.utils.ExponentialLR(opt,
-                                      num_steps=sched_config['num_steps'],
-                                      decay=sched_config['decay'],
-                                      warmup=sched_config['warmup'])
-    elif sched_config['type'] == 'constant':
-        sched = K.utils.ConstantLRWithWarmup(opt, warmup=sched_config['warmup'])
-    else:
-        raise ValueError('Invalid schedule type')
+        if sched_config['type'] == 'inverse':
+            sched = K.utils.InverseLR(opt,
+                                    inv_gamma=sched_config['inv_gamma'],
+                                    power=sched_config['power'],
+                                    warmup=sched_config['warmup'])
+        elif sched_config['type'] == 'exponential':
+            sched = K.utils.ExponentialLR(opt,
+                                        num_steps=sched_config['num_steps'],
+                                        decay=sched_config['decay'],
+                                        warmup=sched_config['warmup'])
+        elif sched_config['type'] == 'constant':
+            sched = K.utils.ConstantLRWithWarmup(opt, warmup=sched_config['warmup'])
+        else:
+            raise ValueError('Invalid schedule type')
 
-    assert ema_sched_config['type'] == 'inverse'
-    ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
-                                  max_value=ema_sched_config['max_value'])
-    ema_stats = {}
+        assert ema_sched_config['type'] == 'inverse'
+        ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
+                                    max_value=ema_sched_config['max_value'])
+        ema_stats = {}
+    else:
+        opt: Optional[Optimizer] = None
+        sched: Optional[LRScheduler] = None
+        ema_sched: Optional[K.utils.EMAWarmup] = None
 
     tf = transforms.Compose([
         transforms.Resize(size[0], interpolation=transforms.InterpolationMode.BICUBIC),
@@ -238,22 +262,38 @@ def main():
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
                                num_workers=args.num_workers, persistent_workers=True, pin_memory=True)
 
-    inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
-    if use_wandb:
-        wandb.watch(inner_model)
+    if do_train:
+        inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
+        if use_wandb:
+            wandb.watch(inner_model)
+    else:
+        inner_model_ema, train_dl = accelerator.prepare(inner_model_ema, train_dl)
+
     if accelerator.num_processes == 1:
         args.gns = False
-    if args.gns:
+    if args.gns and do_train:
         gns_stats_hook = K.gns.DDPGradientStatsHook(inner_model)
         gns_stats = K.gns.GradientNoiseScale()
     else:
         gns_stats = None
-    sigma_min = model_config['sigma_min']
-    sigma_max = model_config['sigma_max']
-    sample_density = K.config.make_sample_density(model_config)
-
-    model = K.config.make_denoiser_wrapper(config)(inner_model)
-    model_ema = K.config.make_denoiser_wrapper(config)(inner_model_ema)
+    if guided_diff is None:
+        sigma_min = model_config['sigma_min']
+        sigma_max = model_config['sigma_max']
+        sample_density = K.config.make_sample_density(model_config)
+        if do_train:
+            model = K.config.make_denoiser_wrapper(config)(inner_model)
+        model_ema = K.config.make_denoiser_wrapper(config)(inner_model_ema)
+    else:
+        from kdiff_trainer.load_diffusion_model import wrap_diffusion_model
+        if do_train:
+            model = wrap_diffusion_model(inner_model, guided_diff, device=accelerator.device)
+        model_ema = wrap_diffusion_model(inner_model_ema, guided_diff, device=accelerator.device)
+        sigma_min = model_ema.sigma_min.item()
+        sigma_max = model_ema.sigma_max.item()
+        # TODO: not sure what this needs to be for guided diffusion
+        sample_density = None
+        if not do_train:
+            model_ema.requires_grad_(False).eval()
 
     state_path = Path(f'{args.name}_state.json')
 
@@ -266,18 +306,19 @@ def main():
         if accelerator.is_main_process:
             print(f'Resuming from {ckpt_path}...')
         ckpt = torch.load(ckpt_path, map_location='cpu')
-        unwrap(model.inner_model).load_state_dict(ckpt['model'])
         unwrap(model_ema.inner_model).load_state_dict(ckpt['model_ema'])
-        opt.load_state_dict(ckpt['opt'])
-        sched.load_state_dict(ckpt['sched'])
-        ema_sched.load_state_dict(ckpt['ema_sched'])
-        ema_stats = ckpt.get('ema_stats', ema_stats)
-        epoch = ckpt['epoch'] + 1
-        step = ckpt['step'] + 1
-        if args.gns and ckpt.get('gns_stats', None) is not None:
-            gns_stats.load_state_dict(ckpt['gns_stats'])
-        demo_gen.set_state(ckpt['demo_gen'])
-        elapsed = ckpt.get('elapsed', 0.0)
+        if do_train:
+            unwrap(model.inner_model).load_state_dict(ckpt['model'])
+            opt.load_state_dict(ckpt['opt'])
+            sched.load_state_dict(ckpt['sched'])
+            ema_sched.load_state_dict(ckpt['ema_sched'])
+            ema_stats = ckpt.get('ema_stats', ema_stats)
+            epoch = ckpt['epoch'] + 1
+            step = ckpt['step'] + 1
+            if args.gns and ckpt.get('gns_stats', None) is not None:
+                gns_stats.load_state_dict(ckpt['gns_stats'])
+            demo_gen.set_state(ckpt['demo_gen'])
+            elapsed = ckpt.get('elapsed', 0.0)
 
         del ckpt
     else:
@@ -285,6 +326,8 @@ def main():
         step = 0
 
     if args.reset_ema:
+        if not do_train:
+            raise ValueError("Training is disabled (this can happen as a result of options such as --evaluate-only). Accordingly we did not construct a trainable model, and consequently cannot load the EMA model's weights onto said trainable model. Disable --reset-ema, or enable training.")
         unwrap(model.inner_model).load_state_dict(unwrap(model_ema.inner_model).state_dict())
         ema_sched = K.utils.EMAWarmup(power=ema_sched_config['power'],
                                       max_value=ema_sched_config['max_value'])
@@ -293,12 +336,19 @@ def main():
     if args.resume_inference:
         if accelerator.is_main_process:
             print(f'Loading {args.resume_inference}...')
-        ckpt = safetorch.load_file(args.resume_inference)
-        unwrap(model.inner_model).load_state_dict(ckpt)
-        unwrap(model_ema.inner_model).load_state_dict(ckpt)
-        del ckpt
+        if guided_diff is None:
+            ckpt = safetorch.load_file(args.resume_inference)
+            if do_train:
+                unwrap(model.inner_model).load_state_dict(ckpt)
+            unwrap(model_ema.inner_model).load_state_dict(ckpt)
+            del ckpt
+        else:
+            from kdiff_trainer.load_diffusion_model import load_diffusion_model
+            if do_train:
+                load_diffusion_model(args.resume_inference, unwrap(model.inner_model))
+            load_diffusion_model(args.resume_inference, unwrap(model_ema.inner_model))
 
-    evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
+    evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0 or args.evaluate_only
     metrics_log = None
     if evaluate_enabled:
         if args.evaluate_with == 'inception':
@@ -412,9 +462,11 @@ def main():
             wandb.save(filename)
 
     if args.evaluate_only:
-        if not evaluate_enabled:
-            raise ValueError('--evaluate-only requested but evaluation is disabled')
+        if args.evaluate_n < 1:
+            raise ValueError('--evaluate-only requested but evaluate_n is less than 1')
         evaluate()
+        if accelerator.is_main_process:
+            tqdm.write('Finished evaluating!')
         return
 
     losses_since_last_print = []
