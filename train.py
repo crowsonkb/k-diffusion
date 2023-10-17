@@ -382,7 +382,7 @@ def main():
             return cfg_model_fn
         return model
 
-    @torch.no_grad()
+    @torch.inference_mode() # note: inference_mode is lower-overhead than no_grad but disables forward-mode AD
     @K.utils.eval_mode(model_ema)
     def demo():
         if accelerator.is_main_process:
@@ -407,7 +407,7 @@ def main():
             if use_wandb:
                 wandb.log({'demo_grid': wandb.Image(filename)}, step=step)
 
-    @torch.no_grad()
+    @torch.inference_mode() # note: inference_mode is lower-overhead than no_grad but disables forward-mode AD
     @K.utils.eval_mode(model_ema)
     def evaluate():
         if not evaluate_enabled:
