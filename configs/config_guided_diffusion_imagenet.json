@@ -13,7 +13,8 @@
       "num_res_blocks": 2,
       "resblock_updown": true,
       "use_fp16": true,
-      "use_scale_shift_norm": true
+      "use_scale_shift_norm": true,
+      "use_torch_sdp_attention": true
     },
     "input_channels": 3,
     "input_size": [256, 256]
