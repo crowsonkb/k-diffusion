@@ -1,0 +1,27 @@
+{
+  "model": {
+    "type": "guided_diffusion",
+    "config": {
+      "attention_resolutions": "32, 16, 8",
+      "class_cond": true,
+      "diffusion_steps": 1000,
+      "image_size": 256,
+      "learn_sigma": true,
+      "noise_schedule": "linear",
+      "num_channels": 256,
+      "num_head_channels": 64,
+      "num_res_blocks": 2,
+      "resblock_updown": true,
+      "use_fp16": true,
+      "use_scale_shift_norm": true,
+      "use_torch_sdp_attention": true
+    },
+    "input_channels": 3,
+    "input_size": [256, 256]
+  },
+  "dataset": {
+    "type": "imagefolder-class",
+    "location": "/nvme1/ml-data/ImageNet/train",
+    "num_classes": 1000
+  }
+}

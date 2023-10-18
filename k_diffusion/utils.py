@@ -336,6 +336,11 @@ def rand_log_logistic(shape, loc=0., scale=1., min_value=0., max_value=float('in
     return u.logit().mul(scale).add(loc).exp().to(dtype)
 
 
+def rand_uniform(shape, min_value, max_value, device='cpu', dtype=torch.float32):
+    """Draws samples from a uniform distribution."""
+    return (stratified_with_settings(shape, device=device, dtype=dtype) * (max_value - min_value) + min_value)
+
+
 def rand_log_uniform(shape, min_value, max_value, device='cpu', dtype=torch.float32):
     """Draws samples from an log-uniform distribution."""
     min_value = math.log(min_value)

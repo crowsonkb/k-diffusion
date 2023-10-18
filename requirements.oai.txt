@@ -1,0 +1,1 @@
+guided-diffusion @ git+https://github.com/Birch-san/guided-diffusion.git@torch-sdp#egg=guided-diffusion

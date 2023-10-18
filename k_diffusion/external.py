@@ -167,6 +167,25 @@ class DiscreteVDDPMDenoiser(DiscreteSchedule):
         return self.get_v(input * c_in, self.sigma_to_t(sigma), **kwargs) * c_out + input * c_skip
 
 
+class OpenAIVDenoiser(DiscreteVDDPMDenoiser):
+    """A wrapper for OpenAI v objective diffusion models."""
+
+    def __init__(
+        self, model, diffusion, quantize=False, has_learned_sigmas=True, device="cpu"
+    ):
+        alphas_cumprod = torch.tensor(
+            diffusion.alphas_cumprod, device=device, dtype=torch.float32
+        )
+        super().__init__(model, alphas_cumprod, quantize=quantize)
+        self.has_learned_sigmas = has_learned_sigmas
+
+    def get_v(self, *args, **kwargs):
+        model_output = self.inner_model(*args, **kwargs)
+        if self.has_learned_sigmas:
+            return model_output.chunk(2, dim=1)[0]
+        return model_output
+
+
 class CompVisVDenoiser(DiscreteVDDPMDenoiser):
     """A wrapper for CompVis diffusion models that output v."""
 
