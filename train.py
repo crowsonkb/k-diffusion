@@ -18,7 +18,7 @@ import torch._dynamo
 from torch import distributed as dist
 from torch import multiprocessing as mp
 from torch import optim
-from torch.utils import data
+from torch.utils import data, flop_counter
 from torchvision import datasets, transforms, utils
 from tqdm.auto import tqdm
 
@@ -239,6 +239,17 @@ def main():
                                num_workers=args.num_workers, persistent_workers=True, pin_memory=True)
 
     inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
+
+    with torch.no_grad(), K.models.flops.flop_counter() as fc:
+        x = torch.zeros([1, model_config['input_channels'], size[0], size[1]], device=device)
+        sigma = torch.ones([1], device=device)
+        extra_args = {}
+        if getattr(unwrap(inner_model), "num_classes", 0):
+            extra_args['class_cond'] = torch.zeros([1], dtype=torch.long, device=device)
+        inner_model(x, sigma, **extra_args)
+        if accelerator.is_main_process:
+            print(f"Forward pass GFLOPs: {fc.flops / 1_000_000_000:,.3f}", flush=True)
+
     if use_wandb:
         wandb.watch(inner_model)
     if accelerator.num_processes == 1:

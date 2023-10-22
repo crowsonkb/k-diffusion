@@ -11,7 +11,7 @@ from torch import nn
 import torch._dynamo
 from torch.nn import functional as F
 
-from . import flags
+from . import flags, flops
 from .. import layers
 from .axial_rope import make_axial_pos
 
@@ -123,12 +123,19 @@ def scale_for_cosine_sim_qkv(qkv, scale, eps):
 
 # Layers
 
+class Linear(nn.Linear):
+    def forward(self, x):
+        flops.op(flops.op_linear, x.shape, self.weight.shape)
+        return super().forward(x)
+
+
 class LinearGEGLU(nn.Linear):
     def __init__(self, in_features, out_features, bias=True):
         super().__init__(in_features, out_features * 2, bias=bias)
         self.out_features = out_features
 
     def forward(self, x):
+        flops.op(flops.op_linear, x.shape, self.weight.shape)
         return linear_geglu(x, self.weight, self.bias)
 
 
@@ -149,7 +156,7 @@ class AdaRMSNorm(nn.Module):
     def __init__(self, features, cond_features, eps=1e-6):
         super().__init__()
         self.eps = eps
-        self.linear = apply_wd(zero_init(nn.Linear(cond_features, features, bias=False)))
+        self.linear = apply_wd(zero_init(Linear(cond_features, features, bias=False)))
         tag_module(self.linear, "mapping")
 
     def extra_repr(self):
@@ -313,6 +320,7 @@ def apply_window_attention(window_size, window_shift, q, k, v, scale=None):
     mask = torch.reshape(mask, (h, w, wh * ww, wh * ww))
 
     # do the attention here
+    flops.op(flops.op_attention, q_seqs.shape, k_seqs.shape, v_seqs.shape)
     qkv = F.scaled_dot_product_attention(q_seqs, k_seqs, v_seqs, mask, scale=scale)
 
     # unwindow
@@ -341,11 +349,11 @@ class SelfAttentionBlock(nn.Module):
         self.d_head = d_head
         self.n_heads = d_model // d_head
         self.norm = AdaRMSNorm(d_model, cond_features)
-        self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
+        self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
         self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
-        self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
+        self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
 
     def extra_repr(self):
         return f"d_head={self.d_head},"
@@ -361,6 +369,8 @@ class SelfAttentionBlock(nn.Module):
             qkv = scale_for_cosine_sim_qkv(qkv, self.scale, 1e-6)
             theta = torch.stack((theta, theta, torch.zeros_like(theta)), dim=-3)
             qkv = apply_rotary_emb_(qkv, theta)
+            flops_shape = qkv.shape[-5], qkv.shape[-2], qkv.shape[-4], qkv.shape[-1]
+            flops.op(flops.op_attention, flops_shape, flops_shape, flops_shape)
             x = flash_attn.flash_attn_qkvpacked_func(qkv, softmax_scale=1.0)
             x = rearrange(x, "n (h w) nh e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         else:
@@ -369,6 +379,7 @@ class SelfAttentionBlock(nn.Module):
             theta = theta.movedim(-2, -3)
             q = apply_rotary_emb_(q, theta)
             k = apply_rotary_emb_(k, theta)
+            flops.op(flops.op_attention, q.shape, k.shape, v.shape)
             x = F.scaled_dot_product_attention(q, k, v, scale=1.0)
             x = rearrange(x, "n nh (h w) e -> n h w (nh e)", h=skip.shape[-3], w=skip.shape[-2])
         x = self.dropout(x)
@@ -383,11 +394,11 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         self.n_heads = d_model // d_head
         self.kernel_size = kernel_size
         self.norm = AdaRMSNorm(d_model, cond_features)
-        self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
+        self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
         self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
-        self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
+        self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
 
     def extra_repr(self):
         return f"d_head={self.d_head}, kernel_size={self.kernel_size}"
@@ -403,6 +414,7 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
         k = apply_rotary_emb_(k, theta)
         if natten is None:
             raise ModuleNotFoundError("natten is required for neighborhood attention")
+        flops.op(flops.op_natten, q.shape, k.shape, v.shape, self.kernel_size)
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
         a = torch.softmax(qk, dim=-1)
         x = natten.functional.natten2dav(a, v, self.kernel_size, 1)
@@ -420,11 +432,11 @@ class ShiftedWindowSelfAttentionBlock(nn.Module):
         self.window_size = window_size
         self.window_shift = window_shift
         self.norm = AdaRMSNorm(d_model, cond_features)
-        self.qkv_proj = apply_wd(nn.Linear(d_model, d_model * 3, bias=False))
+        self.qkv_proj = apply_wd(Linear(d_model, d_model * 3, bias=False))
         self.scale = nn.Parameter(torch.full([self.n_heads], 10.0))
         self.pos_emb = AxialRoPE(d_head // 2, self.n_heads)
         self.dropout = nn.Dropout(dropout)
-        self.out_proj = apply_wd(zero_init(nn.Linear(d_model, d_model, bias=False)))
+        self.out_proj = apply_wd(zero_init(Linear(d_model, d_model, bias=False)))
 
     def extra_repr(self):
         return f"d_head={self.d_head}, window_size={self.window_size}, window_shift={self.window_shift}"
@@ -451,7 +463,7 @@ class FeedForwardBlock(nn.Module):
         self.norm = AdaRMSNorm(d_model, cond_features)
         self.up_proj = apply_wd(LinearGEGLU(d_model, d_ff, bias=False))
         self.dropout = nn.Dropout(dropout)
-        self.down_proj = apply_wd(zero_init(nn.Linear(d_ff, d_model, bias=False)))
+        self.down_proj = apply_wd(zero_init(Linear(d_ff, d_model, bias=False)))
 
     def forward(self, x, cond):
         skip = x
@@ -524,7 +536,7 @@ class MappingFeedForwardBlock(nn.Module):
         self.norm = RMSNorm(d_model)
         self.up_proj = apply_wd(LinearGEGLU(d_model, d_ff, bias=False))
         self.dropout = nn.Dropout(dropout)
-        self.down_proj = apply_wd(zero_init(nn.Linear(d_ff, d_model, bias=False)))
+        self.down_proj = apply_wd(zero_init(Linear(d_ff, d_model, bias=False)))
 
     def forward(self, x):
         skip = x
@@ -557,7 +569,7 @@ class TokenMerge(nn.Module):
         super().__init__()
         self.h = patch_size[0]
         self.w = patch_size[1]
-        self.proj = apply_wd(nn.Linear(in_features * self.h * self.w, out_features, bias=False))
+        self.proj = apply_wd(Linear(in_features * self.h * self.w, out_features, bias=False))
 
     def forward(self, x):
         x = rearrange(x, "... (h nh) (w nw) e -> ... h w (nh nw e)", nh=self.h, nw=self.w)
@@ -569,7 +581,7 @@ class TokenSplitWithoutSkip(nn.Module):
         super().__init__()
         self.h = patch_size[0]
         self.w = patch_size[1]
-        self.proj = apply_wd(nn.Linear(in_features, out_features * self.h * self.w, bias=False))
+        self.proj = apply_wd(Linear(in_features, out_features * self.h * self.w, bias=False))
 
     def forward(self, x):
         x = self.proj(x)
@@ -581,7 +593,7 @@ class TokenSplit(nn.Module):
         super().__init__()
         self.h = patch_size[0]
         self.w = patch_size[1]
-        self.proj = apply_wd(nn.Linear(in_features, out_features * self.h * self.w, bias=False))
+        self.proj = apply_wd(Linear(in_features, out_features * self.h * self.w, bias=False))
         self.fac = nn.Parameter(torch.ones(1) * 0.5)
 
     def forward(self, x, skip):
@@ -639,11 +651,11 @@ class ImageTransformerDenoiserModelV2(nn.Module):
         self.patch_in = TokenMerge(in_channels, levels[0].width, patch_size)
 
         self.time_emb = layers.FourierFeatures(1, mapping.width)
-        self.time_in_proj = nn.Linear(mapping.width, mapping.width, bias=False)
+        self.time_in_proj = Linear(mapping.width, mapping.width, bias=False)
         self.aug_emb = layers.FourierFeatures(9, mapping.width)
-        self.aug_in_proj = nn.Linear(mapping.width, mapping.width, bias=False)
+        self.aug_in_proj = Linear(mapping.width, mapping.width, bias=False)
         self.class_emb = nn.Embedding(num_classes, mapping.width) if num_classes else None
-        self.mapping_cond_in_proj = nn.Linear(mapping_cond_dim, mapping.width, bias=False) if mapping_cond_dim else None
+        self.mapping_cond_in_proj = Linear(mapping_cond_dim, mapping.width, bias=False) if mapping_cond_dim else None
         self.mapping = tag_module(MappingNetwork(mapping.depth, mapping.width, mapping.d_ff, dropout=dropout), "mapping")
 
         self.down_levels, self.up_levels = nn.ModuleList(), nn.ModuleList()
