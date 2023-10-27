@@ -474,7 +474,7 @@ class FeedForwardBlock(nn.Module):
         return x + skip
 
 
-class TransformerLayer(nn.Module):
+class GlobalTransformerLayer(nn.Module):
     def __init__(self, d_model, d_ff, d_head, cond_features, dropout=0.0):
         super().__init__()
         self.self_attn = SelfAttentionBlock(d_model, d_head, cond_features, dropout=dropout)
@@ -632,6 +632,7 @@ class LevelSpec:
     width: int
     d_ff: int
     self_attn: Union[GlobalAttentionSpec, NeighborhoodAttentionSpec, ShiftedWindowAttentionSpec, NoAttentionSpec]
+    dropout: float
 
 
 @dataclass
@@ -639,12 +640,13 @@ class MappingSpec:
     depth: int
     width: int
     d_ff: int
+    dropout: float
 
 
 # Model class
 
 class ImageTransformerDenoiserModelV2(nn.Module):
-    def __init__(self, levels, mapping, in_channels, out_channels, patch_size, num_classes=0, mapping_cond_dim=0, dropout=0.0):
+    def __init__(self, levels, mapping, in_channels, out_channels, patch_size, num_classes=0, mapping_cond_dim=0):
         super().__init__()
         self.num_classes = num_classes
 
@@ -656,18 +658,18 @@ class ImageTransformerDenoiserModelV2(nn.Module):
         self.aug_in_proj = Linear(mapping.width, mapping.width, bias=False)
         self.class_emb = nn.Embedding(num_classes, mapping.width) if num_classes else None
         self.mapping_cond_in_proj = Linear(mapping_cond_dim, mapping.width, bias=False) if mapping_cond_dim else None
-        self.mapping = tag_module(MappingNetwork(mapping.depth, mapping.width, mapping.d_ff, dropout=dropout), "mapping")
+        self.mapping = tag_module(MappingNetwork(mapping.depth, mapping.width, mapping.d_ff, dropout=mapping.dropout), "mapping")
 
         self.down_levels, self.up_levels = nn.ModuleList(), nn.ModuleList()
         for i, spec in enumerate(levels):
             if isinstance(spec.self_attn, GlobalAttentionSpec):
-                layer_factory = lambda _: TransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, dropout=dropout)
+                layer_factory = lambda _: GlobalTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, dropout=spec.dropout)
             elif isinstance(spec.self_attn, NeighborhoodAttentionSpec):
-                layer_factory = lambda _: NeighborhoodTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.kernel_size, dropout=dropout)
+                layer_factory = lambda _: NeighborhoodTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.kernel_size, dropout=spec.dropout)
             elif isinstance(spec.self_attn, ShiftedWindowAttentionSpec):
-                layer_factory = lambda i: ShiftedWindowTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.window_size, i, dropout=dropout)
+                layer_factory = lambda i: ShiftedWindowTransformerLayer(spec.width, spec.d_ff, spec.self_attn.d_head, mapping.width, spec.self_attn.window_size, i, dropout=spec.dropout)
             elif isinstance(spec.self_attn, NoAttentionSpec):
-                layer_factory = lambda _: NoAttentionTransformerLayer(spec.width, spec.d_ff, mapping.width, dropout=dropout)
+                layer_factory = lambda _: NoAttentionTransformerLayer(spec.width, spec.d_ff, mapping.width, dropout=spec.dropout)
             else:
                 raise ValueError(f"unsupported self attention spec {spec.self_attn}")
 

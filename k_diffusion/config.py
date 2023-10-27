@@ -61,8 +61,10 @@ def load_config(path_or_dict):
             'mapping_depth': 2,
             'mapping_d_ff': None,
             'mapping_cond_dim': 0,
+            'mapping_dropout_rate': 0.,
             'd_ffs': None,
             'self_attns': None,
+            'dropout_rate': None,
             'augment_wrapper': False,
             'skip_stages': 0,
             'has_variance': False,
@@ -137,6 +139,10 @@ def load_config(path_or_dict):
             for i in range(len(config['model']['widths'])):
                 self_attns.append(default_neighborhood if i < len(config['model']['widths']) - 1 else default_global)
             config['model']['self_attns'] = self_attns
+        if config['model']['dropout_rate'] is None:
+            config['model']['dropout_rate'] = [0.0] * len(config['model']['widths'])
+        elif isinstance(config['model']['dropout_rate'], float):
+            config['model']['dropout_rate'] = [config['model']['dropout_rate']] * len(config['model']['widths'])
     return merge(defaults, config)
 
 
@@ -178,8 +184,9 @@ def make_model(config):
         assert len(config['widths']) == len(config['depths'])
         assert len(config['widths']) == len(config['d_ffs'])
         assert len(config['widths']) == len(config['self_attns'])
+        assert len(config['widths']) == len(config['dropout_rate'])
         levels = []
-        for depth, width, d_ff, self_attn in zip(config['depths'], config['widths'], config['d_ffs'], config['self_attns']):
+        for depth, width, d_ff, self_attn, dropout in zip(config['depths'], config['widths'], config['d_ffs'], config['self_attns'], config['dropout_rate']):
             if self_attn['type'] == 'global':
                 self_attn = models.image_transformer_v2.GlobalAttentionSpec(self_attn.get('d_head', 64))
             elif self_attn['type'] == 'neighborhood':
@@ -190,8 +197,8 @@ def make_model(config):
                 self_attn = models.image_transformer_v2.NoAttentionSpec()
             else:
                 raise ValueError(f'unsupported self attention type {self_attn["type"]}')
-            levels.append(models.image_transformer_v2.LevelSpec(depth, width, d_ff, self_attn))
-        mapping = models.image_transformer_v2.MappingSpec(config['mapping_depth'], config['mapping_width'], config['mapping_d_ff'])
+            levels.append(models.image_transformer_v2.LevelSpec(depth, width, d_ff, self_attn, dropout))
+        mapping = models.image_transformer_v2.MappingSpec(config['mapping_depth'], config['mapping_width'], config['mapping_d_ff'], config['mapping_dropout_rate'])
         model = models.ImageTransformerDenoiserModelV2(
             levels=levels,
             mapping=mapping,
@@ -200,7 +207,6 @@ def make_model(config):
             patch_size=config['patch_size'],
             num_classes=num_classes + 1 if num_classes else 0,
             mapping_cond_dim=config['mapping_cond_dim'],
-            dropout=config['dropout_rate'],
         )
     else:
         raise ValueError(f'unsupported model type {config["type"]}')
