@@ -1,5 +1,7 @@
 # k-diffusion
 
+[![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.10284390.svg)](https://doi.org/10.5281/zenodo.10284390)
+
 An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
 ## Installation
