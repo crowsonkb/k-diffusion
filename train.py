@@ -9,6 +9,7 @@ import importlib.util
 import math
 import json
 from pathlib import Path
+import time
 
 import accelerate
 import safetensors.torch as safetorch
@@ -17,7 +18,7 @@ import torch._dynamo
 from torch import distributed as dist
 from torch import multiprocessing as mp
 from torch import optim
-from torch.utils import data
+from torch.utils import data, flop_counter
 from torchvision import datasets, transforms, utils
 from tqdm.auto import tqdm
 
@@ -51,12 +52,14 @@ def main():
     p.add_argument('--end-step', type=int, default=None,
                    help='the step to end training at')
     p.add_argument('--evaluate-every', type=int, default=10000,
-                   help='save a demo grid every this many steps')
+                   help='evaluate every this many steps')
+    p.add_argument('--evaluate-n', type=int, default=2000,
+                   help='the number of samples to draw to evaluate')
+    p.add_argument('--evaluate-only', action='store_true',
+                   help='evaluate instead of training')
     p.add_argument('--evaluate-with', type=str, default='inception',
                    choices=['inception', 'clip', 'dinov2'],
                    help='the feature extractor to use for evaluation')
-    p.add_argument('--evaluate-n', type=int, default=2000,
-                   help='the number of samples to draw to evaluate')
     p.add_argument('--gns', action='store_true',
                    help='measure the gradient noise scale (DDP only, disables stratified sampling)')
     p.add_argument('--grad-accum-steps', type=int, default=1,
@@ -117,11 +120,16 @@ def main():
     device = accelerator.device
     unwrap = accelerator.unwrap_model
     print(f'Process {accelerator.process_index} using device: {device}', flush=True)
+    accelerator.wait_for_everyone()
+    if accelerator.is_main_process:
+        print(f'World size: {accelerator.num_processes}', flush=True)
+        print(f'Batch size: {args.batch_size * accelerator.num_processes}', flush=True)
 
     if args.seed is not None:
         seeds = torch.randint(-2 ** 63, 2 ** 63 - 1, [accelerator.num_processes], generator=torch.Generator().manual_seed(args.seed))
         torch.manual_seed(seeds[accelerator.process_index])
     demo_gen = torch.Generator().manual_seed(torch.randint(-2 ** 63, 2 ** 63 - 1, ()).item())
+    elapsed = 0.0
 
     inner_model = K.config.make_model(config)
     inner_model_ema = deepcopy(inner_model)
@@ -150,6 +158,13 @@ def main():
                           betas=tuple(opt_config['betas']),
                           eps=opt_config['eps'],
                           weight_decay=opt_config['weight_decay'])
+    elif opt_config['type'] == 'adam8bit':
+        import bitsandbytes as bnb
+        opt = bnb.optim.Adam8bit(groups,
+                                 lr=lr,
+                                 betas=tuple(opt_config['betas']),
+                                 eps=opt_config['eps'],
+                                 weight_decay=opt_config['weight_decay'])
     elif opt_config['type'] == 'sgd':
         opt = optim.SGD(groups,
                         lr=lr,
@@ -221,9 +236,20 @@ def main():
     class_key = dataset_config.get('class_key', 1)
 
     train_dl = data.DataLoader(train_set, args.batch_size, shuffle=True, drop_last=True,
-                               num_workers=args.num_workers, persistent_workers=True)
+                               num_workers=args.num_workers, persistent_workers=True, pin_memory=True)
 
     inner_model, inner_model_ema, opt, train_dl = accelerator.prepare(inner_model, inner_model_ema, opt, train_dl)
+
+    with torch.no_grad(), K.models.flops.flop_counter() as fc:
+        x = torch.zeros([1, model_config['input_channels'], size[0], size[1]], device=device)
+        sigma = torch.ones([1], device=device)
+        extra_args = {}
+        if getattr(unwrap(inner_model), "num_classes", 0):
+            extra_args['class_cond'] = torch.zeros([1], dtype=torch.long, device=device)
+        inner_model(x, sigma, **extra_args)
+        if accelerator.is_main_process:
+            print(f"Forward pass GFLOPs: {fc.flops / 1_000_000_000:,.3f}", flush=True)
+
     if use_wandb:
         wandb.watch(inner_model)
     if accelerator.num_processes == 1:
@@ -262,6 +288,7 @@ def main():
         if args.gns and ckpt.get('gns_stats', None) is not None:
             gns_stats.load_state_dict(ckpt['gns_stats'])
         demo_gen.set_state(ckpt['demo_gen'])
+        elapsed = ckpt.get('elapsed', 0.0)
 
         del ckpt
     else:
@@ -283,6 +310,7 @@ def main():
         del ckpt
 
     evaluate_enabled = args.evaluate_every > 0 and args.evaluate_n > 0
+    metrics_log = None
     if evaluate_enabled:
         if args.evaluate_with == 'inception':
             extractor = K.evaluation.InceptionV3FeatureExtractor(device=device)
@@ -296,8 +324,8 @@ def main():
         if accelerator.is_main_process:
             print('Computing features for reals...')
         reals_features = K.evaluation.compute_features(accelerator, lambda x: next(train_iter)[image_key][1], extractor, args.evaluate_n, args.batch_size)
-        if accelerator.is_main_process:
-            metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'loss', 'fid', 'kid'])
+        if accelerator.is_main_process and not args.evaluate_only:
+            metrics_log = K.utils.CSVLogger(f'{args.name}_metrics.csv', ['step', 'time', 'loss', 'fid', 'kid'])
         del train_iter
 
     cfg_scale = 1.
@@ -361,8 +389,8 @@ def main():
             fid = K.evaluation.fid(fakes_features, reals_features)
             kid = K.evaluation.kid(fakes_features, reals_features)
             print(f'FID: {fid.item():g}, KID: {kid.item():g}')
-            if accelerator.is_main_process:
-                metrics_log.write(step, ema_stats['loss'], fid.item(), kid.item())
+            if accelerator.is_main_process and metrics_log is not None:
+                metrics_log.write(step, elapsed, ema_stats['loss'], fid.item(), kid.item())
             if use_wandb:
                 wandb.log({'FID': fid.item(), 'KID': kid.item()}, step=step)
 
@@ -385,6 +413,7 @@ def main():
             'gns_stats': gns_stats.state_dict() if gns_stats is not None else None,
             'ema_stats': ema_stats,
             'demo_gen': demo_gen.get_state(),
+            'elapsed': elapsed,
         }
         accelerator.save(obj, filename)
         if accelerator.is_main_process:
@@ -393,11 +422,25 @@ def main():
         if args.wandb_save_model and use_wandb:
             wandb.save(filename)
 
+    if args.evaluate_only:
+        if not evaluate_enabled:
+            raise ValueError('--evaluate-only requested but evaluation is disabled')
+        evaluate()
+        return
+
     losses_since_last_print = []
 
     try:
         while True:
             for batch in tqdm(train_dl, smoothing=0.1, disable=not accelerator.is_main_process):
+                if device.type == 'cuda':
+                    start_timer = torch.cuda.Event(enable_timing=True)
+                    end_timer = torch.cuda.Event(enable_timing=True)
+                    torch.cuda.synchronize()
+                    start_timer.record()
+                else:
+                    start_timer = time.time()
+
                 with accelerator.accumulate(model):
                     reals, _, aug_cond = batch[image_key]
                     class_cond, extra_args = None, {}
@@ -428,6 +471,13 @@ def main():
                     if accelerator.sync_gradients:
                         K.utils.ema_update(model, model_ema, ema_decay)
                         ema_sched.step()
+
+                if device.type == 'cuda':
+                    end_timer.record()
+                    torch.cuda.synchronize()
+                    elapsed += start_timer.elapsed_time(end_timer) / 1000
+                else:
+                    elapsed += time.time() - start_timer
 
                 if step % 25 == 0:
                     loss_disp = sum(losses_since_last_print) / len(losses_since_last_print)

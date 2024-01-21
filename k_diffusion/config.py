@@ -55,6 +55,28 @@ def load_config(path_or_dict):
             'weight_decay': 1e-4,
         },
     }
+    defaults_image_transformer_v2 = {
+        'model': {
+            'mapping_width': 256,
+            'mapping_depth': 2,
+            'mapping_d_ff': None,
+            'mapping_cond_dim': 0,
+            'mapping_dropout_rate': 0.,
+            'd_ffs': None,
+            'self_attns': None,
+            'dropout_rate': None,
+            'augment_wrapper': False,
+            'skip_stages': 0,
+            'has_variance': False,
+        },
+        'optimizer': {
+            'type': 'adamw',
+            'lr': 5e-4,
+            'betas': [0.9, 0.99],
+            'eps': 1e-8,
+            'weight_decay': 1e-4,
+        },
+    }
     defaults = {
         'model': {
             'sigma_data': 1.,
@@ -101,6 +123,26 @@ def load_config(path_or_dict):
         config = merge(defaults_image_transformer_v1, config)
         if not config['model']['d_ff']:
             config['model']['d_ff'] = round_to_power_of_two(config['model']['width'] * 8 / 3, tol=0.05)
+    elif config['model']['type'] == 'image_transformer_v2':
+        config = merge(defaults_image_transformer_v2, config)
+        if not config['model']['mapping_d_ff']:
+            config['model']['mapping_d_ff'] = config['model']['mapping_width'] * 3
+        if not config['model']['d_ffs']:
+            d_ffs = []
+            for width in config['model']['widths']:
+                d_ffs.append(width * 3)
+            config['model']['d_ffs'] = d_ffs
+        if not config['model']['self_attns']:
+            self_attns = []
+            default_neighborhood = {"type": "neighborhood", "d_head": 64, "kernel_size": 7}
+            default_global = {"type": "global", "d_head": 64}
+            for i in range(len(config['model']['widths'])):
+                self_attns.append(default_neighborhood if i < len(config['model']['widths']) - 1 else default_global)
+            config['model']['self_attns'] = self_attns
+        if config['model']['dropout_rate'] is None:
+            config['model']['dropout_rate'] = [0.0] * len(config['model']['widths'])
+        elif isinstance(config['model']['dropout_rate'], float):
+            config['model']['dropout_rate'] = [config['model']['dropout_rate']] * len(config['model']['widths'])
     return merge(defaults, config)
 
 
@@ -137,6 +179,34 @@ def make_model(config):
             num_classes=num_classes + 1 if num_classes else 0,
             dropout=config['dropout_rate'],
             sigma_data=config['sigma_data'],
+        )
+    elif config['type'] == 'image_transformer_v2':
+        assert len(config['widths']) == len(config['depths'])
+        assert len(config['widths']) == len(config['d_ffs'])
+        assert len(config['widths']) == len(config['self_attns'])
+        assert len(config['widths']) == len(config['dropout_rate'])
+        levels = []
+        for depth, width, d_ff, self_attn, dropout in zip(config['depths'], config['widths'], config['d_ffs'], config['self_attns'], config['dropout_rate']):
+            if self_attn['type'] == 'global':
+                self_attn = models.image_transformer_v2.GlobalAttentionSpec(self_attn.get('d_head', 64))
+            elif self_attn['type'] == 'neighborhood':
+                self_attn = models.image_transformer_v2.NeighborhoodAttentionSpec(self_attn.get('d_head', 64), self_attn.get('kernel_size', 7))
+            elif self_attn['type'] == 'shifted-window':
+                self_attn = models.image_transformer_v2.ShiftedWindowAttentionSpec(self_attn.get('d_head', 64), self_attn['window_size'])
+            elif self_attn['type'] == 'none':
+                self_attn = models.image_transformer_v2.NoAttentionSpec()
+            else:
+                raise ValueError(f'unsupported self attention type {self_attn["type"]}')
+            levels.append(models.image_transformer_v2.LevelSpec(depth, width, d_ff, self_attn, dropout))
+        mapping = models.image_transformer_v2.MappingSpec(config['mapping_depth'], config['mapping_width'], config['mapping_d_ff'], config['mapping_dropout_rate'])
+        model = models.ImageTransformerDenoiserModelV2(
+            levels=levels,
+            mapping=mapping,
+            in_channels=config['input_channels'],
+            out_channels=config['input_channels'],
+            patch_size=config['patch_size'],
+            num_classes=num_classes + 1 if num_classes else 0,
+            mapping_cond_dim=config['mapping_cond_dim'],
         )
     else:
         raise ValueError(f'unsupported model type {config["type"]}')

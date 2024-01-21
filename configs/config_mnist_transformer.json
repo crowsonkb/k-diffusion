@@ -1,11 +1,11 @@
 {
     "model": {
-        "type": "image_transformer_v1",
+        "type": "image_transformer_v2",
         "input_channels": 1,
         "input_size": [28, 28],
         "patch_size": [4, 4],
-        "width": 256,
-        "depth": 8,
+        "depths": [8],
+        "widths": [256],
         "loss_config": "karras",
         "loss_weighting": "soft-min-snr",
         "dropout_rate": 0.05,

@@ -9,7 +9,7 @@ Pillow
 safetensors
 scikit-image
 scipy
-torch>=2.0
+torch>=2.1
 torchdiffeq
 torchsde
 torchvision
