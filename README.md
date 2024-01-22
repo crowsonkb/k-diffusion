@@ -4,11 +4,9 @@
 
 An implementation of [Elucidating the Design Space of Diffusion-Based Generative Models](https://arxiv.org/abs/2206.00364) (Karras et al., 2022) for PyTorch, with enhancements and additional features, such as improved sampling algorithms and transformer-based diffusion models.
 
-## Hourglass transformer experimental branch
+## Hourglass diffusion transformer
 
-**This branch is under active development. Models of the new type that are trained with it may stop working due to backward incompatible changes.**
-
-This branch of `k-diffusion` is for testing an experimental model type, `image_transformer_v2`, that uses ideas from [Hourglass Transformer](https://arxiv.org/abs/2110.13711) and [DiT](https://arxiv.org/abs/2212.09748).
+`k-diffusion` contains a new model type, `image_transformer_v2`, that uses ideas from [Hourglass Transformer](https://arxiv.org/abs/2110.13711) and [DiT](https://arxiv.org/abs/2212.09748).
 
 ### Requirements
 
@@ -18,7 +16,7 @@ To use the new model type you will need to install custom CUDA kernels:
 
 * [FlashAttention-2](https://github.com/Dao-AILab/flash-attention) for global attention. It will fall back to plain PyTorch if it is not installed.
 
-Also, you should make sure your PyTorch installation is capable of using `torch.compile()` (for instance, if you are using Python 3.11, you should use a PyTorch nightly build instead of 2.0). It will fall back to eager mode if `torch.compile()` is not available, but it will be slower and use more memory in training.
+Also, you should make sure your PyTorch installation is capable of using `torch.compile()`. It will fall back to eager mode if `torch.compile()` is not available, but it will be slower and use more memory in training.
 
 ### Usage
 
@@ -75,6 +73,10 @@ In the `"model"` key of the config file:
     ```
 
     The window size at each level must evenly divide the image size at that level. Models trained with one attention type must be fine-tuned to be used with a different type.
+
+#### Inference
+
+TODO: write this section
 
 ## Installation
 
