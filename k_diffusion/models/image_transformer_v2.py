@@ -416,7 +416,7 @@ class NeighborhoodSelfAttentionBlock(nn.Module):
             raise ModuleNotFoundError("natten is required for neighborhood attention")
         flops.op(flops.op_natten, q.shape, k.shape, v.shape, self.kernel_size)
         qk = natten.functional.natten2dqk(q, k, self.kernel_size, 1)
-        a = torch.softmax(qk, dim=-1)
+        a = torch.softmax(qk, dim=-1).to(v.dtype)
         x = natten.functional.natten2dav(a, v, self.kernel_size, 1)
         x = rearrange(x, "n nh h w e -> n h w (nh e)")
         x = self.dropout(x)
