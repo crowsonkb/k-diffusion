@@ -45,11 +45,12 @@ def freq_weight_nd(shape, scales=0, dtype=None, device=None):
 class Denoiser(nn.Module):
     """A Karras et al. preconditioner for denoising diffusion models."""
 
-    def __init__(self, inner_model, sigma_data=1., weighting='karras', scales=1):
+    def __init__(self, inner_model, sigma_data=1., weighting='karras', scales=1, noise_perturbation_factor=0.0):
         super().__init__()
         self.inner_model = inner_model
         self.sigma_data = sigma_data
         self.scales = scales
+        self.noise_perturbation_factor = noise_perturbation_factor
         if callable(weighting):
             self.weighting = weighting
         if weighting == 'karras':
@@ -77,7 +78,10 @@ class Denoiser(nn.Module):
         c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
         c_weight = self.weighting(sigma)
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
-        model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
+        model_input = noised_input
+        if self.noise_perturbation_factor > 0:
+            model_input += utils.append_dims(sigma, input.ndim) * torch.randn_like(noise) * self.noise_perturbation_factor
+        model_output = self.inner_model(model_input * c_in, sigma, **kwargs)
         target = (input - c_skip * noised_input) / c_out
         if self.scales == 1:
             return ((model_output - target) ** 2).flatten(1).mean(1) * c_weight

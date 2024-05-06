@@ -221,13 +221,14 @@ def make_denoiser_wrapper(config):
     if loss_config == 'karras':
         weighting = config.get('loss_weighting', 'karras')
         scales = config.get('loss_scales', 1)
+        noise_perturbation_factor = config.get('noise_perturbation_factor', 0.0)
         if not has_variance:
-            return partial(layers.Denoiser, sigma_data=sigma_data, weighting=weighting, scales=scales)
-        return partial(layers.DenoiserWithVariance, sigma_data=sigma_data, weighting=weighting)
+            return partial(layers.Denoiser, sigma_data=sigma_data, weighting=weighting, scales=scales, noise_perturbation_factor=noise_perturbation_factor)
+        return partial(layers.DenoiserWithVariance, sigma_data=sigma_data, weighting=weighting, noise_perturbation_factor=noise_perturbation_factor)
     if loss_config == 'simple':
         if has_variance:
             raise ValueError('Simple loss config does not support a variance output')
-        return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data)
+        return partial(layers.SimpleLossDenoiser, sigma_data=sigma_data, noise_perturbation_factor=noise_perturbation_factor)
     raise ValueError('Unknown loss config type')
 
 
