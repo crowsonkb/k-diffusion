@@ -77,7 +77,7 @@ class BatchedBrownianTree:
         except TypeError:
             seed = [seed]
             self.batched = False
-        self.trees = [torchsde.BrownianTree(t0, w0, t1, entropy=s, **kwargs) for s in seed]
+        self.trees = [torchsde.BrownianTree(t0, w0, t1, entropy=int(s), **kwargs) for s in seed]
 
     @staticmethod
     def sort(a, b):
