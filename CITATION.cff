@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+title: k-diffusion
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Katherine
+    family-names: Crowson
+  - given-names: Romain
+    family-names: Beaumont
+  - given-names: Tanishq
+    family-names: Abraham
+  - given-names: Jonathan
+    family-names: Whitaker
+repository-code: 'https://github.com/crowsonkb/k-diffusion'
+abstract: >-
+  An implementation of Elucidating the Design Space of
+  Diffusion-Based Generative Models (Karras et al., 2022)
+  for PyTorch. The patching method in Improving Diffusion
+  Model Efficiency Through Patching (Luhman et al., 2022) is
+  implemented as well.
+license: MIT
+version: 0.0.15
