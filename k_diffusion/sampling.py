@@ -45,7 +45,7 @@ def get_sigmas_vp(n, beta_d=19.9, beta_min=0.1, eps_s=1e-3, device='cpu'):
 
 def to_d(x, sigma, denoised):
     """Converts a denoiser output to a Karras ODE derivative."""
-    return (x - denoised) / utils.append_dims(sigma, x.ndim)
+    return (x - denoised) / sigma
 
 
 def get_ancestral_step(sigma_from, sigma_to, eta=1.):
