@@ -2,7 +2,6 @@ from functools import lru_cache, reduce
 import math
 
 from dctorch import functional as df
-from einops import rearrange, repeat
 import torch
 from torch import nn
 from torch.nn import functional as F
@@ -74,7 +73,7 @@ class Denoiser(nn.Module):
         return c_skip, c_out, c_in
 
     def loss(self, input, noise, sigma, **kwargs):
-        c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+        c_skip, c_out, c_in = (utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma))
         c_weight = self.weighting(sigma)
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output = self.inner_model(noised_input * c_in, sigma, **kwargs)
@@ -86,13 +85,13 @@ class Denoiser(nn.Module):
         return (sq_error * f_weight).flatten(1).mean(1) * c_weight
 
     def forward(self, input, sigma, **kwargs):
-        c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+        c_skip, c_out, c_in = (utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma))
         return self.inner_model(input * c_in, sigma, **kwargs) * c_out + input * c_skip
 
 
 class DenoiserWithVariance(Denoiser):
     def loss(self, input, noise, sigma, **kwargs):
-        c_skip, c_out, c_in = [utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma)]
+        c_skip, c_out, c_in = (utils.append_dims(x, input.ndim) for x in self.get_scalings(sigma))
         noised_input = input + noise * utils.append_dims(sigma, input.ndim)
         model_output, logvar = self.inner_model(noised_input * c_in, sigma, return_variance=True, **kwargs)
         logvar = utils.append_dims(logvar, model_output.ndim)
@@ -235,10 +234,10 @@ class CrossAttention2d(ConditionedModule):
 _kernels = {
     'linear':
         [1 / 8, 3 / 8, 3 / 8, 1 / 8],
-    'cubic': 
+    'cubic':
         [-0.01171875, -0.03515625, 0.11328125, 0.43359375,
         0.43359375, 0.11328125, -0.03515625, -0.01171875],
-    'lanczos3': 
+    'lanczos3':
         [0.003689131001010537, 0.015056144446134567, -0.03399861603975296,
         -0.066637322306633, 0.13550527393817902, 0.44638532400131226,
         0.44638532400131226, 0.13550527393817902, -0.066637322306633,

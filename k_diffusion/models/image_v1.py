@@ -1,4 +1,3 @@
-import math
 
 import torch
 from torch import nn
@@ -32,16 +31,19 @@ class ResConvBlock(layers.ConditionedResidualBlock):
 class DBlock(layers.ConditionedSequential):
     def __init__(self, n_layers, feats_in, c_in, c_mid, c_out, group_size=32, head_size=64, dropout_rate=0., downsample=False, self_attn=False, cross_attn=False, c_enc=0):
         modules = [nn.Identity()]
+
+        def norm(c_in):
+            return layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
+
         for i in range(n_layers):
             my_c_in = c_in if i == 0 else c_mid
             my_c_out = c_mid if i < n_layers - 1 else c_out
+            n_head = max(1, my_c_out // head_size)
             modules.append(ResConvBlock(feats_in, my_c_in, c_mid, my_c_out, group_size, dropout_rate))
             if self_attn:
-                norm = lambda c_in: layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
-                modules.append(layers.SelfAttention2d(my_c_out, max(1, my_c_out // head_size), norm, dropout_rate))
+                modules.append(layers.SelfAttention2d(my_c_out, n_head, norm, dropout_rate))
             if cross_attn:
-                norm = lambda c_in: layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
-                modules.append(layers.CrossAttention2d(my_c_out, c_enc, max(1, my_c_out // head_size), norm, dropout_rate))
+                modules.append(layers.CrossAttention2d(my_c_out, c_enc, n_head, norm, dropout_rate))
         super().__init__(*modules)
         self.set_downsample(downsample)
 
@@ -53,16 +55,17 @@ class DBlock(layers.ConditionedSequential):
 class UBlock(layers.ConditionedSequential):
     def __init__(self, n_layers, feats_in, c_in, c_mid, c_out, group_size=32, head_size=64, dropout_rate=0., upsample=False, self_attn=False, cross_attn=False, c_enc=0):
         modules = []
+        def norm(c_in):
+            return layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
         for i in range(n_layers):
             my_c_in = c_in if i == 0 else c_mid
             my_c_out = c_mid if i < n_layers - 1 else c_out
+            n_head = max(1, my_c_out // head_size)
             modules.append(ResConvBlock(feats_in, my_c_in, c_mid, my_c_out, group_size, dropout_rate))
             if self_attn:
-                norm = lambda c_in: layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
-                modules.append(layers.SelfAttention2d(my_c_out, max(1, my_c_out // head_size), norm, dropout_rate))
+                modules.append(layers.SelfAttention2d(my_c_out, n_head, norm, dropout_rate))
             if cross_attn:
-                norm = lambda c_in: layers.AdaGN(feats_in, c_in, max(1, my_c_out // group_size))
-                modules.append(layers.CrossAttention2d(my_c_out, c_enc, max(1, my_c_out // head_size), norm, dropout_rate))
+                modules.append(layers.CrossAttention2d(my_c_out, c_enc, n_head, norm, dropout_rate))
         modules.append(nn.Identity())
         super().__init__(*modules)
         self.set_upsample(upsample)

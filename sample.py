@@ -8,7 +8,7 @@ from pathlib import Path
 import accelerate
 import safetensors.torch as safetorch
 import torch
-from tqdm import trange, tqdm
+from tqdm import tqdm
 
 import k_diffusion as K
 
