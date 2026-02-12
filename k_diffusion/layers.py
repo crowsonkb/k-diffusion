@@ -52,7 +52,7 @@ class Denoiser(nn.Module):
         self.scales = scales
         if callable(weighting):
             self.weighting = weighting
-        if weighting == 'karras':
+        elif weighting == 'karras':
             self.weighting = torch.ones_like
         elif weighting == 'soft-min-snr':
             self.weighting = self._weighting_soft_min_snr
