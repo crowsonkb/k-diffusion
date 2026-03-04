@@ -18,7 +18,7 @@ import torch._dynamo
 from torch import distributed as dist
 from torch import multiprocessing as mp
 from torch import optim
-from torch.utils import data, flop_counter
+from torch.utils import data
 from torchvision import datasets, transforms, utils
 from tqdm.auto import tqdm
 

@@ -84,7 +84,13 @@ def freqs_pixel_log(max_freq=10.0):
 
 
 class AxialRoPE(nn.Module):
-    def __init__(self, dim, n_heads, start_index=0, freqs_init=freqs_pixel_log(max_freq=10.0)):
+    def __init__(
+        self,
+        dim,
+        n_heads,
+        start_index=0,
+        freqs_init=freqs_pixel_log(max_freq=10.0),  # noqa: B008
+    ):
         super().__init__()
         self.n_heads = n_heads
         self.start_index = start_index

@@ -12,7 +12,7 @@ import safetensors.torch as safetorch
 import torch
 from torch.nn import functional as F
 from torchvision import transforms
-from tqdm import trange, tqdm
+from tqdm import tqdm
 
 import k_diffusion as K
 
