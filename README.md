@@ -80,7 +80,10 @@ TODO: write this section
 
 ## Installation
 
-`k-diffusion` can be installed via PyPI (`pip install k-diffusion`) but it will not include training and inference scripts, only library code that others can depend on. To run the training and inference scripts, clone this repository and run `pip install -e <path to repository>`.
+`k-diffusion` can be installed via PyPI (`pip install k-diffusion`) but it will not include training and inference scripts, only library code that others can depend on.
+
+To run the training and inference scripts, clone this repository and run `pip install -e <path to repository>[train]`
+(to install with the `train` extra that includes additional libraries required for training).
 
 ## Training
 

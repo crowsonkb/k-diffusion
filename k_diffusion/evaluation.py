@@ -2,7 +2,6 @@ import math
 import os
 from pathlib import Path
 
-from cleanfid.inception_torchscript import InceptionV3W
 import clip
 import torch
 from torch import nn
@@ -16,6 +15,10 @@ from . import utils
 class InceptionV3FeatureExtractor(nn.Module):
     def __init__(self, device='cpu'):
         super().__init__()
+        try:
+            from cleanfid.inception_torchscript import InceptionV3W
+        except ImportError as ie:
+            raise ImportError('Please install clean-fid to use InceptionV3FeatureExtractor') from ie
         path = Path(os.environ.get('XDG_CACHE_HOME', Path.home() / '.cache')) / 'k-diffusion'
         url = 'https://nvlabs-fi-cdn.nvidia.com/stylegan2-ada-pytorch/pretrained/metrics/inception-2015-12-05.pt'
         digest = 'f58cb9b6ec323ed63459aa4fb441fe750cfe39fafad6da5cb504a16f19e958f4'
