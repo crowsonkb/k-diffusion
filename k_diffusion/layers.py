@@ -195,7 +195,8 @@ class SelfAttention2d(ConditionedModule):
         qkv = self.qkv_proj(self.norm_in(input, cond))
         qkv = qkv.view([n, self.n_head * 3, c // self.n_head, h * w]).transpose(2, 3)
         q, k, v = qkv.chunk(3, dim=1)
-        y = F.scaled_dot_product_attention(q, k, v, dropout_p=self.dropout.p)
+        dropout_p = self.dropout.p if self.dropout.training else 0.
+        y = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout_p)
         y = y.transpose(2, 3).contiguous().view([n, c, h, w])
         return input + self.out_proj(y)
 
@@ -225,7 +226,8 @@ class CrossAttention2d(ConditionedModule):
         kv = kv.view([n, -1, self.n_head * 2, c // self.n_head]).transpose(1, 2)
         k, v = kv.chunk(2, dim=1)
         attn_mask = (cond[self.cond_key_padding][:, None, None, :]) * -10000
-        y = F.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=self.dropout.p)
+        dropout_p = self.dropout.p if self.dropout.training else 0.
+        y = F.scaled_dot_product_attention(q, k, v, attn_mask, dropout_p=dropout_p)
         y = y.transpose(2, 3).contiguous().view([n, c, h, w])
         return input + self.out_proj(y)
 
