@@ -53,8 +53,54 @@ def get_ancestral_step(sigma_from, sigma_to, eta=1.):
     of noise to add (sigma_up) when doing an ancestral sampling step."""
     if not eta:
         return sigma_to, 0.
-    sigma_up = min(sigma_to, eta * (sigma_to ** 2 * (sigma_from ** 2 - sigma_to ** 2) / sigma_from ** 2) ** 0.5)
-    sigma_down = (sigma_to ** 2 - sigma_up ** 2) ** 0.5
+    if not sigma_to:
+        return sigma_to * 0., sigma_to
+    # Resolve scalar Tensor promotion before increasing intermediate precision.
+    result_type = eta * (sigma_to / sigma_from)
+    # Keep the variance dimensionless. Half-precision intermediates need float32
+    # even when the final noise levels themselves are representable in half.
+    target = sigma_to
+    if torch.is_tensor(result_type):
+        dtype = torch.float32 if result_type.dtype in (torch.float16, torch.bfloat16) else result_type.dtype
+        if torch.is_tensor(sigma_from):
+            sigma_from = sigma_from.to(dtype=dtype)
+        if torch.is_tensor(sigma_to):
+            sigma_to = sigma_to.to(dtype=dtype)
+        if torch.is_tensor(eta):
+            eta = eta.to(dtype=dtype)
+    ratio = sigma_to / sigma_from
+    variance = ((sigma_from - sigma_to) / sigma_from) * (1 + ratio)
+    up_ratio = min(1., eta * variance ** 0.5)
+    if eta > 1 and up_ratio == 1:
+        return target * 0., target
+    sigma_up = sigma_to * up_ratio
+    if eta == 1 and (not torch.is_tensor(eta) or not eta.requires_grad):
+        sigma_down = sigma_to * ratio
+    elif 0 <= eta <= 0.5:
+        # Here the complement is bounded away from zero. Its direct variance
+        # form retains small eta gradients without subtracting nearly equal terms.
+        sigma_down = sigma_to * (1 - eta ** 2 * variance) ** 0.5
+    elif 0 <= eta <= 1:
+        complement = (1 - eta) * (1 + eta)
+        residual = eta * ratio
+        # Scale before squaring so a small residual cannot underflow. Detaching
+        # this arbitrary scale also avoids sqrt(0)'s derivative at eta=1.
+        scale = max(complement ** 0.5, abs(residual))
+        if torch.is_tensor(scale):
+            scale = scale.detach()
+        if scale:
+            sigma_down = (sigma_to * scale) * ((complement / scale) / scale + (residual / scale) ** 2) ** 0.5
+        else:
+            sigma_down = sigma_to * residual
+    else:
+        sigma_down = sigma_to * ((1 - up_ratio) * (1 + up_ratio)) ** 0.5
+    if torch.is_tensor(result_type):
+        if torch.is_tensor(sigma_down):
+            sigma_down = sigma_down.to(result_type)
+        else:
+            sigma_down = result_type.new_tensor(sigma_down)
+        if torch.is_tensor(sigma_up):
+            sigma_up = sigma_up.to(result_type)
     return sigma_down, sigma_up
 
 
